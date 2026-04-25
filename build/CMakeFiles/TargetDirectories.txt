@@ -1,0 +1,3 @@
+C:/Users/sahot/Documents/GitHub/Chess_Engine/Chess-Engine/build/CMakeFiles/chess.dir
+C:/Users/sahot/Documents/GitHub/Chess_Engine/Chess-Engine/build/CMakeFiles/edit_cache.dir
+C:/Users/sahot/Documents/GitHub/Chess_Engine/Chess-Engine/build/CMakeFiles/rebuild_cache.dir
