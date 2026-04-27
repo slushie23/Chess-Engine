@@ -26,6 +26,8 @@ private:
     void initZobrist();
     uint64_t computeHash() const;
     int pieceIndex(char piece) const;
+    int quiescence(int alpha, int beta, bool maximizingPlayer);
+    int kingSafety(bool white) const;
 
 public:
     Board();
@@ -41,6 +43,8 @@ public:
     bool isValidKingMove(int fromR, int fromC, int toR, int toC);
 
     int evaluate();
+    bool isSquareAttacked(int r, int c, bool byWhite) const;
+    bool isInCheck(bool white) const;
 
     void makeMove(Move& move);
     void undoMove(const Move& move);

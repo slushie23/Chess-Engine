@@ -193,13 +193,96 @@ std::vector<Move> Board::generateAllMoves(bool whiteTurn) {
             if (whiteTurn  && islower(piece)) continue;
             if (!whiteTurn && isupper(piece)) continue;
 
-            for (int tr = 0; tr < 8; tr++)
-                for (int tc = 0; tc < 8; tc++)
-                    if (isValidMove(r, c, tr, tc))
-                        moves.push_back({r, c, tr, tc, board[tr][tc]});
+            for (int tr = 0; tr < 8; tr++) {
+                for (int tc = 0; tc < 8; tc++) {
+                    if (!isValidMove(r, c, tr, tc)) continue;
+                    Move m = {r, c, tr, tc};
+                    makeMove(m);
+                    if (!isInCheck(whiteTurn))
+                        moves.push_back(m);
+                    undoMove(m);
+                }
+            }
         }
     }
     return moves;
+}
+
+bool Board::isSquareAttacked(int r, int c, bool byWhite) const {
+    // Pawn attacks (pawns attack diagonally forward)
+    if (byWhite) {
+        if (r + 1 < 8) {
+            if (c - 1 >= 0 && board[r+1][c-1] == 'P') return true;
+            if (c + 1 < 8 && board[r+1][c+1] == 'P') return true;
+        }
+    } else {
+        if (r - 1 >= 0) {
+            if (c - 1 >= 0 && board[r-1][c-1] == 'p') return true;
+            if (c + 1 < 8 && board[r-1][c+1] == 'p') return true;
+        }
+    }
+
+    // Knight attacks
+    char knight = byWhite ? 'N' : 'n';
+    static const int knightDirs[8][2] = {
+        {-2,-1},{-2,1},{-1,-2},{-1,2},{1,-2},{1,2},{2,-1},{2,1}
+    };
+    for (auto& d : knightDirs) {
+        int nr = r + d[0], nc = c + d[1];
+        if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8 && board[nr][nc] == knight)
+            return true;
+    }
+
+    // Diagonal rays: bishop or queen
+    char bishop = byWhite ? 'B' : 'b';
+    char queen  = byWhite ? 'Q' : 'q';
+    static const int diagDirs[4][2] = {{-1,-1},{-1,1},{1,-1},{1,1}};
+    for (auto& d : diagDirs) {
+        int nr = r + d[0], nc = c + d[1];
+        while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+            if (board[nr][nc] != '.') {
+                if (board[nr][nc] == bishop || board[nr][nc] == queen) return true;
+                break;
+            }
+            nr += d[0]; nc += d[1];
+        }
+    }
+
+    // Vertical and Horizontal rays: rook or queen
+    char rook = byWhite ? 'R' : 'r';
+    static const int orthDirs[4][2] = {{-1,0},{1,0},{0,-1},{0,1}};
+    for (auto& d : orthDirs) {
+        int nr = r + d[0], nc = c + d[1];
+        while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+            if (board[nr][nc] != '.') {
+                if (board[nr][nc] == rook || board[nr][nc] == queen) return true;
+                break;
+            }
+            nr += d[0]; nc += d[1];
+        }
+    }
+
+    // King adjacency
+    char king = byWhite ? 'K' : 'k';
+    static const int kingDirs[8][2] = {
+        {-1,-1},{-1,0},{-1,1},{0,-1},{0,1},{1,-1},{1,0},{1,1}
+    };
+    for (auto& d : kingDirs) {
+        int nr = r + d[0], nc = c + d[1];
+        if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8 && board[nr][nc] == king)
+            return true;
+    }
+
+    return false;
+}
+
+bool Board::isInCheck(bool white) const {
+    char king = white ? 'K' : 'k';
+    for (int r = 0; r < 8; r++)
+        for (int c = 0; c < 8; c++)
+            if (board[r][c] == king)
+                return isSquareAttacked(r, c, !white);
+    return false;
 }
 
 void Board::makeMove(Move& move) {
@@ -229,6 +312,38 @@ void Board::undoMove(const Move& move) {
     board[move.toR][move.toC]     = move.captured;
 }
 
+int Board::quiescence(int alpha, int beta, bool maximizingPlayer) {
+    int standPat = evaluate();
+
+    // Stand-pat pruning: the current player can always choose not to capture
+    if (maximizingPlayer) {
+        if (standPat >= beta) return standPat;
+        alpha = max(alpha, standPat);
+    } else {
+        if (standPat <= alpha) return standPat;
+        beta = min(beta, standPat);
+    }
+
+    vector<Move> moves = generateAllMoves(maximizingPlayer);
+    for (Move& m : moves) {
+        if (m.captured == '.') continue; // skip quiet moves
+
+        makeMove(m);
+        int score = quiescence(alpha, beta, !maximizingPlayer);
+        undoMove(m);
+
+        if (maximizingPlayer) {
+            if (score >= beta) return score;
+            alpha = max(alpha, score);
+        } else {
+            if (score <= alpha) return score;
+            beta = min(beta, score);
+        }
+    }
+
+    return maximizingPlayer ? alpha : beta;
+}
+
 int Board::minimax(int depth, bool maximizingPlayer, int alpha, int beta) {
     // Transposition table lookup
     TTEntry& entry = transpositionTable[hash % TT_SIZE];
@@ -240,7 +355,7 @@ int Board::minimax(int depth, bool maximizingPlayer, int alpha, int beta) {
     }
 
     if (depth == 0)
-        return evaluate();
+        return quiescence(alpha, beta, maximizingPlayer);
 
     vector<Move> moves = generateAllMoves(maximizingPlayer);
     if (moves.empty())
@@ -374,6 +489,52 @@ static const int kingPST[8][8] = {
     {-30,-40,-40,-50,-50,-40,-40,-30},
 };
 
+int Board::kingSafety(bool white) const {
+    char king = white ? 'K' : 'k';
+    char pawn = white ? 'P' : 'p';
+    int kingR = -1, kingC = -1;
+
+    for (int r = 0; r < 8 && kingR == -1; r++)
+        for (int c = 0; c < 8 && kingR == -1; c++)
+            if (board[r][c] == king) { kingR = r; kingC = c; }
+
+    if (kingR == -1) return 0;
+
+    int score = 0;
+
+    // Pawn shield: up to 3 pawns on the row directly in front of the king
+    int shieldRow = white ? kingR - 1 : kingR + 1;
+    if (shieldRow >= 0 && shieldRow < 8) {
+        for (int dc = -1; dc <= 1; dc++) {
+            int fc = kingC + dc;
+            if (fc >= 0 && fc < 8 && board[shieldRow][fc] == pawn)
+                score += 10;
+        }
+    }
+
+    // Open / semi-open file penalty: no friendly pawn on files near the king
+    for (int dc = -1; dc <= 1; dc++) {
+        int fc = kingC + dc;
+        if (fc < 0 || fc >= 8) continue;
+        bool hasPawn = false;
+        for (int r = 0; r < 8; r++)
+            if (board[r][fc] == pawn) { hasPawn = true; break; }
+        if (!hasPawn) score -= 20;
+    }
+
+    // Attack-zone penalty: count enemy-controlled squares in the 3x3 king zone
+    for (int dr = -1; dr <= 1; dr++) {
+        for (int dc = -1; dc <= 1; dc++) {
+            int zr = kingR + dr, zc = kingC + dc;
+            if (zr < 0 || zr >= 8 || zc < 0 || zc >= 8) continue;
+            if (isSquareAttacked(zr, zc, !white))
+                score -= 8;
+        }
+    }
+
+    return score;
+}
+
 int Board::evaluate() {
     int score = 0;
     for (int r = 0; r < 8; r++) {
@@ -398,5 +559,9 @@ int Board::evaluate() {
             else       score -= material + pst;
         }
     }
+
+    score += kingSafety(true);
+    score -= kingSafety(false);
+
     return score;
 }
