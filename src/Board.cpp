@@ -8,6 +8,11 @@
 
 using namespace std;
 
+static const uint8_t WK_CASTLE = 1;
+static const uint8_t WQ_CASTLE = 2;
+static const uint8_t BK_CASTLE = 4;
+static const uint8_t BQ_CASTLE = 8;
+
 Board::Board() {
     char initial[8][8] = {
         {'r','n','b','q','k','b','n','r'},
@@ -19,11 +24,11 @@ Board::Board() {
         {'P','P','P','P','P','P','P','P'},
         {'R','N','B','Q','K','B','N','R'}
     };
-
     for (int i = 0; i < 8; i++)
         for (int j = 0; j < 8; j++)
             board[i][j] = initial[i][j];
 
+    castleRights = WK_CASTLE | WQ_CASTLE | BK_CASTLE | BQ_CASTLE;
     initZobrist();
     hash = computeHash();
     transpositionTable.resize(TT_SIZE);
@@ -45,6 +50,8 @@ void Board::initZobrist() {
         for (int sq = 0; sq < 64; sq++)
             zobristTable[p][sq] = rng();
     zobristSideToMove = rng();
+    for (int i = 0; i < 4; i++)
+        zobristCastle[i] = rng();
 }
 
 uint64_t Board::computeHash() const {
@@ -53,6 +60,9 @@ uint64_t Board::computeHash() const {
         for (int c = 0; c < 8; c++)
             if (board[r][c] != '.')
                 h ^= zobristTable[pieceIndex(board[r][c])][r * 8 + c];
+    for (int i = 0; i < 4; i++)
+        if (castleRights & (1 << i))
+            h ^= zobristCastle[i];
     return h;
 }
 
@@ -73,22 +83,27 @@ void Board::movePiece(int fromR, int fromC, int toR, int toC) {
         cout << "Destination position is out of bounds!" << endl;
         return;
     }
-    if (!isValidMove(fromR, fromC, toR, toC)) {
-        cout << "Invalid move!" << endl;
-        return;
-    }
 
     char fromPiece = board[fromR][fromC];
-    char toPiece   = board[toR][toC];
-    if (toPiece != '.') {
-        if ((isupper(fromPiece) && isupper(toPiece)) ||
-            (islower(fromPiece) && islower(toPiece))) {
+    bool isCastling = (fromPiece == 'K' || fromPiece == 'k')
+                   && fromR == toR && abs(toC - fromC) == 2;
+
+    if (!isCastling) {
+        if (!isValidMove(fromR, fromC, toR, toC)) {
+            cout << "Invalid move!" << endl;
+            return;
+        }
+        char toPiece = board[toR][toC];
+        if (toPiece != '.' && ((isupper(fromPiece) && isupper(toPiece)) ||
+                               (islower(fromPiece) && islower(toPiece)))) {
             cout << "Cannot capture your own piece!" << endl;
             return;
         }
     }
 
     Move m = {fromR, fromC, toR, toC};
+    if ((fromPiece == 'P' && toR == 0) || (fromPiece == 'p' && toR == 7))
+        m.promotion = isupper(fromPiece) ? 'Q' : 'q';
     makeMove(m);
 }
 
@@ -152,8 +167,7 @@ bool Board::isValidRookMove(int fromR, int fromC, int toR, int toC) {
     int r = fromR + stepR, c = fromC + stepC;
     while (r != toR || c != toC) {
         if (board[r][c] != '.') return false;
-        r += stepR;
-        c += stepC;
+        r += stepR; c += stepC;
     }
     return true;
 }
@@ -167,8 +181,7 @@ bool Board::isValidBishopMove(int fromR, int fromC, int toR, int toC) {
     int r = fromR + stepR, c = fromC + stepC;
     while (r != toR && c != toC) {
         if (board[r][c] != '.') return false;
-        r += stepR;
-        c += stepC;
+        r += stepR; c += stepC;
     }
     return true;
 }
@@ -196,20 +209,80 @@ std::vector<Move> Board::generateAllMoves(bool whiteTurn) {
             for (int tr = 0; tr < 8; tr++) {
                 for (int tc = 0; tc < 8; tc++) {
                     if (!isValidMove(r, c, tr, tc)) continue;
-                    Move m = {r, c, tr, tc};
-                    makeMove(m);
-                    if (!isInCheck(whiteTurn))
-                        moves.push_back(m);
-                    undoMove(m);
+
+                    bool isPromotion = (piece == 'P' && tr == 0) ||
+                                       (piece == 'p' && tr == 7);
+                    if (isPromotion) {
+                        const char* promos = isupper(piece) ? "QRBN" : "qrbn";
+                        for (int i = 0; i < 4; i++) {
+                            Move m = {r, c, tr, tc};
+                            m.promotion = promos[i];
+                            makeMove(m);
+                            if (!isInCheck(whiteTurn))
+                                moves.push_back(m);
+                            undoMove(m);
+                        }
+                    } else {
+                        Move m = {r, c, tr, tc};
+                        makeMove(m);
+                        if (!isInCheck(whiteTurn))
+                            moves.push_back(m);
+                        undoMove(m);
+                    }
                 }
             }
         }
     }
+
+    // Castling: checked separately because king must not pass through check
+    if (whiteTurn) {
+        // Kingside: e1-f1-g1 must be empty and unattacked; rook on h1
+        if ((castleRights & WK_CASTLE) &&
+            board[7][5] == '.' && board[7][6] == '.' &&
+            !isSquareAttacked(7, 4, false) &&
+            !isSquareAttacked(7, 5, false)) {
+            Move m = {7, 4, 7, 6};
+            makeMove(m);
+            if (!isInCheck(true)) moves.push_back(m);
+            undoMove(m);
+        }
+        // Queenside: b1-c1-d1 empty; d1-c1 unattacked; rook on a1
+        if ((castleRights & WQ_CASTLE) &&
+            board[7][1] == '.' && board[7][2] == '.' && board[7][3] == '.' &&
+            !isSquareAttacked(7, 4, false) &&
+            !isSquareAttacked(7, 3, false)) {
+            Move m = {7, 4, 7, 2};
+            makeMove(m);
+            if (!isInCheck(true)) moves.push_back(m);
+            undoMove(m);
+        }
+    } else {
+        // Kingside: e8-f8-g8
+        if ((castleRights & BK_CASTLE) &&
+            board[0][5] == '.' && board[0][6] == '.' &&
+            !isSquareAttacked(0, 4, true) &&
+            !isSquareAttacked(0, 5, true)) {
+            Move m = {0, 4, 0, 6};
+            makeMove(m);
+            if (!isInCheck(false)) moves.push_back(m);
+            undoMove(m);
+        }
+        // Queenside: b8-c8-d8
+        if ((castleRights & BQ_CASTLE) &&
+            board[0][1] == '.' && board[0][2] == '.' && board[0][3] == '.' &&
+            !isSquareAttacked(0, 4, true) &&
+            !isSquareAttacked(0, 3, true)) {
+            Move m = {0, 4, 0, 2};
+            makeMove(m);
+            if (!isInCheck(false)) moves.push_back(m);
+            undoMove(m);
+        }
+    }
+
     return moves;
 }
 
 bool Board::isSquareAttacked(int r, int c, bool byWhite) const {
-    // Pawn attacks (pawns attack diagonally forward)
     if (byWhite) {
         if (r + 1 < 8) {
             if (c - 1 >= 0 && board[r+1][c-1] == 'P') return true;
@@ -222,7 +295,6 @@ bool Board::isSquareAttacked(int r, int c, bool byWhite) const {
         }
     }
 
-    // Knight attacks
     char knight = byWhite ? 'N' : 'n';
     static const int knightDirs[8][2] = {
         {-2,-1},{-2,1},{-1,-2},{-1,2},{1,-2},{1,2},{2,-1},{2,1}
@@ -233,7 +305,6 @@ bool Board::isSquareAttacked(int r, int c, bool byWhite) const {
             return true;
     }
 
-    // Diagonal rays: bishop or queen
     char bishop = byWhite ? 'B' : 'b';
     char queen  = byWhite ? 'Q' : 'q';
     static const int diagDirs[4][2] = {{-1,-1},{-1,1},{1,-1},{1,1}};
@@ -248,7 +319,6 @@ bool Board::isSquareAttacked(int r, int c, bool byWhite) const {
         }
     }
 
-    // Vertical and Horizontal rays: rook or queen
     char rook = byWhite ? 'R' : 'r';
     static const int orthDirs[4][2] = {{-1,0},{1,0},{0,-1},{0,1}};
     for (auto& d : orthDirs) {
@@ -262,7 +332,6 @@ bool Board::isSquareAttacked(int r, int c, bool byWhite) const {
         }
     }
 
-    // King adjacency
     char king = byWhite ? 'K' : 'k';
     static const int kingDirs[8][2] = {
         {-1,-1},{-1,0},{-1,1},{0,-1},{0,1},{1,-1},{1,0},{1,1}
@@ -288,34 +357,135 @@ bool Board::isInCheck(bool white) const {
 void Board::makeMove(Move& move) {
     char moving = board[move.fromR][move.fromC];
     move.captured = board[move.toR][move.toC];
+    move.prevCastleRights = castleRights;
 
+    // XOR out old castling rights contribution
+    for (int i = 0; i < 4; i++)
+        if (castleRights & (1 << i))
+            hash ^= zobristCastle[i];
+
+    // Revoke rights when king or rook moves
+    if (moving == 'K') castleRights &= ~(WK_CASTLE | WQ_CASTLE);
+    if (moving == 'k') castleRights &= ~(BK_CASTLE | BQ_CASTLE);
+    if (moving == 'R') {
+        if (move.fromR == 7 && move.fromC == 7) castleRights &= ~WK_CASTLE;
+        if (move.fromR == 7 && move.fromC == 0) castleRights &= ~WQ_CASTLE;
+    }
+    if (moving == 'r') {
+        if (move.fromR == 0 && move.fromC == 7) castleRights &= ~BK_CASTLE;
+        if (move.fromR == 0 && move.fromC == 0) castleRights &= ~BQ_CASTLE;
+    }
+    // Revoke rights when a rook is captured on its home square
+    if (move.captured == 'R') {
+        if (move.toR == 7 && move.toC == 7) castleRights &= ~WK_CASTLE;
+        if (move.toR == 7 && move.toC == 0) castleRights &= ~WQ_CASTLE;
+    }
+    if (move.captured == 'r') {
+        if (move.toR == 0 && move.toC == 7) castleRights &= ~BK_CASTLE;
+        if (move.toR == 0 && move.toC == 0) castleRights &= ~BQ_CASTLE;
+    }
+
+    // XOR in new castling rights contribution
+    for (int i = 0; i < 4; i++)
+        if (castleRights & (1 << i))
+            hash ^= zobristCastle[i];
+
+    // Update piece hash
     hash ^= zobristTable[pieceIndex(moving)][move.fromR * 8 + move.fromC];
     if (move.captured != '.')
         hash ^= zobristTable[pieceIndex(move.captured)][move.toR * 8 + move.toC];
     hash ^= zobristTable[pieceIndex(moving)][move.toR * 8 + move.toC];
     hash ^= zobristSideToMove;
 
-    board[move.toR][move.toC]   = moving;
+    board[move.toR][move.toC]    = moving;
     board[move.fromR][move.fromC] = '.';
+
+    // Castling: also move the rook
+    if (moving == 'K' && move.fromC == 4 && abs(move.toC - 4) == 2) {
+        if (move.toC == 6) { // kingside
+            hash ^= zobristTable[pieceIndex('R')][7*8+7];
+            hash ^= zobristTable[pieceIndex('R')][7*8+5];
+            board[7][5] = 'R'; board[7][7] = '.';
+        } else {             // queenside
+            hash ^= zobristTable[pieceIndex('R')][7*8+0];
+            hash ^= zobristTable[pieceIndex('R')][7*8+3];
+            board[7][3] = 'R'; board[7][0] = '.';
+        }
+    }
+    if (moving == 'k' && move.fromC == 4 && abs(move.toC - 4) == 2) {
+        if (move.toC == 6) { // kingside
+            hash ^= zobristTable[pieceIndex('r')][0*8+7];
+            hash ^= zobristTable[pieceIndex('r')][0*8+5];
+            board[0][5] = 'r'; board[0][7] = '.';
+        } else {             // queenside
+            hash ^= zobristTable[pieceIndex('r')][0*8+0];
+            hash ^= zobristTable[pieceIndex('r')][0*8+3];
+            board[0][3] = 'r'; board[0][0] = '.';
+        }
+    }
+
+    // Promotion: swap pawn on destination for the promoted piece
+    if (move.promotion != '.') {
+        hash ^= zobristTable[pieceIndex(moving)][move.toR * 8 + move.toC];
+        hash ^= zobristTable[pieceIndex(move.promotion)][move.toR * 8 + move.toC];
+        board[move.toR][move.toC] = move.promotion;
+    }
 }
 
 void Board::undoMove(const Move& move) {
     char moving = board[move.toR][move.toC];
+    // If this was a promotion, the piece to put back at fromR,fromC is the pawn
+    char originalPiece = (move.promotion != '.')
+                       ? (isupper(move.promotion) ? 'P' : 'p')
+                       : moving;
 
+    // Undo rook movement for castling (before restoring king position)
+    if (moving == 'K' && move.fromC == 4 && abs(move.toC - 4) == 2) {
+        if (move.toC == 6) {
+            hash ^= zobristTable[pieceIndex('R')][7*8+5];
+            hash ^= zobristTable[pieceIndex('R')][7*8+7];
+            board[7][7] = 'R'; board[7][5] = '.';
+        } else {
+            hash ^= zobristTable[pieceIndex('R')][7*8+3];
+            hash ^= zobristTable[pieceIndex('R')][7*8+0];
+            board[7][0] = 'R'; board[7][3] = '.';
+        }
+    }
+    if (moving == 'k' && move.fromC == 4 && abs(move.toC - 4) == 2) {
+        if (move.toC == 6) {
+            hash ^= zobristTable[pieceIndex('r')][0*8+5];
+            hash ^= zobristTable[pieceIndex('r')][0*8+7];
+            board[0][7] = 'r'; board[0][5] = '.';
+        } else {
+            hash ^= zobristTable[pieceIndex('r')][0*8+3];
+            hash ^= zobristTable[pieceIndex('r')][0*8+0];
+            board[0][0] = 'r'; board[0][3] = '.';
+        }
+    }
+
+    // Undo piece hash (use originalPiece so promotion is correctly reversed)
     hash ^= zobristTable[pieceIndex(moving)][move.toR * 8 + move.toC];
-    hash ^= zobristTable[pieceIndex(moving)][move.fromR * 8 + move.fromC];
+    hash ^= zobristTable[pieceIndex(originalPiece)][move.fromR * 8 + move.fromC];
     if (move.captured != '.')
         hash ^= zobristTable[pieceIndex(move.captured)][move.toR * 8 + move.toC];
     hash ^= zobristSideToMove;
 
-    board[move.fromR][move.fromC] = moving;
+    board[move.fromR][move.fromC] = originalPiece;
     board[move.toR][move.toC]     = move.captured;
+
+    // Restore castling rights
+    for (int i = 0; i < 4; i++)
+        if (castleRights & (1 << i))
+            hash ^= zobristCastle[i];
+    castleRights = move.prevCastleRights;
+    for (int i = 0; i < 4; i++)
+        if (castleRights & (1 << i))
+            hash ^= zobristCastle[i];
 }
 
 int Board::quiescence(int alpha, int beta, bool maximizingPlayer) {
     int standPat = evaluate();
 
-    // Stand-pat pruning: the current player can always choose not to capture
     if (maximizingPlayer) {
         if (standPat >= beta) return standPat;
         alpha = max(alpha, standPat);
@@ -326,12 +496,10 @@ int Board::quiescence(int alpha, int beta, bool maximizingPlayer) {
 
     vector<Move> moves = generateAllMoves(maximizingPlayer);
     for (Move& m : moves) {
-        if (m.captured == '.') continue; // skip quiet moves
-
+        if (m.captured == '.') continue;
         makeMove(m);
         int score = quiescence(alpha, beta, !maximizingPlayer);
         undoMove(m);
-
         if (maximizingPlayer) {
             if (score >= beta) return score;
             alpha = max(alpha, score);
@@ -345,12 +513,11 @@ int Board::quiescence(int alpha, int beta, bool maximizingPlayer) {
 }
 
 int Board::minimax(int depth, bool maximizingPlayer, int alpha, int beta) {
-    // Transposition table lookup
     TTEntry& entry = transpositionTable[hash % TT_SIZE];
     if (entry.key == hash && entry.depth >= depth) {
-        if (entry.flag == 0) return entry.score;               // exact
-        if (entry.flag == 1) alpha = max(alpha, entry.score);  // lower bound
-        if (entry.flag == 2) beta  = min(beta,  entry.score);  // upper bound
+        if (entry.flag == 0) return entry.score;
+        if (entry.flag == 1) alpha = max(alpha, entry.score);
+        if (entry.flag == 2) beta  = min(beta,  entry.score);
         if (alpha >= beta) return entry.score;
     }
 
@@ -361,7 +528,6 @@ int Board::minimax(int depth, bool maximizingPlayer, int alpha, int beta) {
     if (moves.empty())
         return evaluate();
 
-    // Move ordering: captures first (improves alpha-beta cutoffs)
     sort(moves.begin(), moves.end(), [](const Move& a, const Move& b) {
         return (a.captured != '.') > (b.captured != '.');
     });
@@ -376,7 +542,7 @@ int Board::minimax(int depth, bool maximizingPlayer, int alpha, int beta) {
             best = max(best, minimax(depth - 1, false, alpha, beta));
             undoMove(m);
             alpha = max(alpha, best);
-            if (alpha >= beta) break; // beta cutoff
+            if (alpha >= beta) break;
         }
     } else {
         best = INT_MAX;
@@ -385,18 +551,17 @@ int Board::minimax(int depth, bool maximizingPlayer, int alpha, int beta) {
             best = min(best, minimax(depth - 1, true, alpha, beta));
             undoMove(m);
             beta = min(beta, best);
-            if (alpha >= beta) break; // alpha cutoff
+            if (alpha >= beta) break;
         }
     }
 
-    // Store in transposition table
     TTEntry& slot = transpositionTable[hash % TT_SIZE];
     slot.key   = hash;
     slot.depth = depth;
     slot.score = best;
-    if      (best <= originalAlpha) slot.flag = 2; // upper bound (fail-low)
-    else if (best >= beta)          slot.flag = 1; // lower bound (fail-high)
-    else                            slot.flag = 0; // exact
+    if      (best <= originalAlpha) slot.flag = 2;
+    else if (best >= beta)          slot.flag = 1;
+    else                            slot.flag = 0;
 
     return best;
 }
@@ -502,7 +667,6 @@ int Board::kingSafety(bool white) const {
 
     int score = 0;
 
-    // Pawn shield: up to 3 pawns on the row directly in front of the king
     int shieldRow = white ? kingR - 1 : kingR + 1;
     if (shieldRow >= 0 && shieldRow < 8) {
         for (int dc = -1; dc <= 1; dc++) {
@@ -512,7 +676,6 @@ int Board::kingSafety(bool white) const {
         }
     }
 
-    // Open / semi-open file penalty: no friendly pawn on files near the king
     for (int dc = -1; dc <= 1; dc++) {
         int fc = kingC + dc;
         if (fc < 0 || fc >= 8) continue;
@@ -522,7 +685,6 @@ int Board::kingSafety(bool white) const {
         if (!hasPawn) score -= 20;
     }
 
-    // Attack-zone penalty: count enemy-controlled squares in the 3x3 king zone
     for (int dr = -1; dr <= 1; dr++) {
         for (int dc = -1; dc <= 1; dc++) {
             int zr = kingR + dr, zc = kingC + dc;
