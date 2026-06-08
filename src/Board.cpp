@@ -568,6 +568,7 @@ int Board::minimax(int depth, bool maximizingPlayer, int alpha, int beta) {
 
 Move Board::getBestMove(int depth, bool whiteTurn) {
     vector<Move> moves = generateAllMoves(whiteTurn);
+    if (moves.empty()) return Move{};
     Move bestMove = moves[0];
 
     if (whiteTurn) {
@@ -697,6 +698,56 @@ int Board::kingSafety(bool white) const {
     return score;
 }
 
+int Board::countMobility(int r, int c) const {
+    char piece = board[r][c];
+    bool white = isupper(piece);
+    char lower = tolower(piece);
+    int count = 0;
+
+    auto canLand = [&](int nr, int nc) {
+        char t = board[nr][nc];
+        return t == '.' || (white ? islower(t) : isupper(t));
+    };
+
+    if (lower == 'p') {
+        int dir = white ? -1 : 1;
+        int nr = r + dir;
+        if (nr >= 0 && nr < 8) {
+            if (board[nr][c] == '.') count++;
+            if (c > 0 && board[nr][c-1] != '.' && canLand(nr, c-1)) count++;
+            if (c < 7 && board[nr][c+1] != '.' && canLand(nr, c+1)) count++;
+        }
+    } else if (lower == 'n') {
+        static const int nd[8][2] = {{-2,-1},{-2,1},{-1,-2},{-1,2},{1,-2},{1,2},{2,-1},{2,1}};
+        for (auto& d : nd) {
+            int nr = r+d[0], nc = c+d[1];
+            if (nr>=0&&nr<8&&nc>=0&&nc<8&&canLand(nr,nc)) count++;
+        }
+    } else if (lower == 'b' || lower == 'q') {
+        static const int dd[4][2] = {{-1,-1},{-1,1},{1,-1},{1,1}};
+        for (auto& d : dd) {
+            int nr = r+d[0], nc = c+d[1];
+            while (nr>=0&&nr<8&&nc>=0&&nc<8) {
+                if (board[nr][nc] == '.') { count++; nr+=d[0]; nc+=d[1]; }
+                else { if (canLand(nr,nc)) count++; break; }
+            }
+        }
+    }
+    if (lower == 'r' || lower == 'q') {
+        static const int od[4][2] = {{-1,0},{1,0},{0,-1},{0,1}};
+        for (auto& d : od) {
+            int nr = r+d[0], nc = c+d[1];
+            while (nr>=0&&nr<8&&nc>=0&&nc<8) {
+                if (board[nr][nc] == '.') { count++; nr+=d[0]; nc+=d[1]; }
+                else { if (canLand(nr,nc)) count++; break; }
+            }
+        }
+    }
+    // King mobility intentionally excluded to avoid incentivising early king movement
+
+    return count;
+}
+
 int Board::evaluate() {
     int score = 0;
     for (int r = 0; r < 8; r++) {
@@ -717,13 +768,44 @@ int Board::evaluate() {
                 case 'k': material =   0; pst = kingPST[pstRow][c];   break;
             }
 
-            if (white) score += material + pst;
-            else       score -= material + pst;
+            int mobility = (tolower(piece) == 'k') ? 0 : countMobility(r, c);
+            if (white) score += material + pst + mobility * 3;
+            else       score -= material + pst + mobility * 3;
         }
     }
 
     score += kingSafety(true);
     score -= kingSafety(false);
+
+    // Pawn structure penalties
+    int wPawns[8] = {}, bPawns[8] = {};
+    for (int r = 0; r < 8; r++)
+        for (int c = 0; c < 8; c++)
+            if      (board[r][c] == 'P') wPawns[c]++;
+            else if (board[r][c] == 'p') bPawns[c]++;
+
+    for (int c = 0; c < 8; c++) {
+        // Doubled: each extra pawn on the same file
+        if (wPawns[c] > 1) score -= 20 * (wPawns[c] - 1);
+        if (bPawns[c] > 1) score += 20 * (bPawns[c] - 1);
+
+        // Isolated: no friendly pawns on either adjacent file
+        if (wPawns[c] > 0) {
+            bool iso = (c == 0 || wPawns[c-1] == 0) && (c == 7 || wPawns[c+1] == 0);
+            if (iso) score -= 15 * wPawns[c];
+        }
+        if (bPawns[c] > 0) {
+            bool iso = (c == 0 || bPawns[c-1] == 0) && (c == 7 || bPawns[c+1] == 0);
+            if (iso) score += 15 * bPawns[c];
+        }
+    }
+
+    // Reward retaining castling options
+    const int CASTLE_BONUS = 15;
+    if (castleRights & WK_CASTLE) score += CASTLE_BONUS;
+    if (castleRights & WQ_CASTLE) score += CASTLE_BONUS;
+    if (castleRights & BK_CASTLE) score -= CASTLE_BONUS;
+    if (castleRights & BQ_CASTLE) score -= CASTLE_BONUS;
 
     return score;
 }

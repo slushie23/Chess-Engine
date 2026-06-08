@@ -30,6 +30,7 @@ private:
     int pieceIndex(char piece) const;
     int quiescence(int alpha, int beta, bool maximizingPlayer);
     int kingSafety(bool white) const;
+    int countMobility(int r, int c) const;
 
 public:
     Board();
