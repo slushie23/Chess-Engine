@@ -12,8 +12,10 @@ private:
     uint64_t zobristTable[12][64];
     uint64_t zobristSideToMove;
     uint64_t zobristCastle[4]; // WK, WQ, BK, BQ
+    uint64_t zobristEP[8];     // one per file
     uint64_t hash;
     uint8_t  castleRights;    // bits: 1=WK 2=WQ 4=BK 8=BQ
+    int      epFile;          // file (0-7) of en-passant target, -1 if none
 
     static const int TT_SIZE = 1 << 20; // ~1M slots
 

@@ -29,6 +29,7 @@ Board::Board() {
             board[i][j] = initial[i][j];
 
     castleRights = WK_CASTLE | WQ_CASTLE | BK_CASTLE | BQ_CASTLE;
+    epFile = -1;
     initZobrist();
     hash = computeHash();
     transpositionTable.resize(TT_SIZE);
@@ -52,6 +53,8 @@ void Board::initZobrist() {
     zobristSideToMove = rng();
     for (int i = 0; i < 4; i++)
         zobristCastle[i] = rng();
+    for (int i = 0; i < 8; i++)
+        zobristEP[i] = rng();
 }
 
 uint64_t Board::computeHash() const {
@@ -63,6 +66,8 @@ uint64_t Board::computeHash() const {
     for (int i = 0; i < 4; i++)
         if (castleRights & (1 << i))
             h ^= zobristCastle[i];
+    if (epFile >= 0)
+        h ^= zobristEP[epFile];
     return h;
 }
 
@@ -104,6 +109,8 @@ void Board::movePiece(int fromR, int fromC, int toR, int toC) {
     Move m = {fromR, fromC, toR, toC};
     if ((fromPiece == 'P' && toR == 0) || (fromPiece == 'p' && toR == 7))
         m.promotion = isupper(fromPiece) ? 'Q' : 'q';
+    if ((fromPiece == 'P' || fromPiece == 'p') && fromC != toC && board[toR][toC] == '.')
+        m.enPassant = true;
     makeMove(m);
 }
 
@@ -142,12 +149,18 @@ bool Board::isValidPawnMove(int fromR, int fromC, int toR, int toC) {
         if (dCol == 0 && dRow == -2 && fromR == 6 &&
             board[toR][toC] == '.' && board[fromR-1][fromC] == '.') return true;
         if (abs(dCol) == 1 && dRow == -1 && islower(board[toR][toC])) return true;
+        // En passant
+        if (abs(dCol) == 1 && dRow == -1 && board[toR][toC] == '.' &&
+            epFile == toC && fromR == 3) return true;
     }
     if (piece == 'p') {
         if (dCol == 0 && dRow == 1 && board[toR][toC] == '.') return true;
         if (dCol == 0 && dRow == 2 && fromR == 1 &&
             board[toR][toC] == '.' && board[fromR+1][fromC] == '.') return true;
         if (abs(dCol) == 1 && dRow == 1 && isupper(board[toR][toC])) return true;
+        // En passant
+        if (abs(dCol) == 1 && dRow == 1 && board[toR][toC] == '.' &&
+            epFile == toC && fromR == 4) return true;
     }
     return false;
 }
@@ -224,6 +237,9 @@ std::vector<Move> Board::generateAllMoves(bool whiteTurn) {
                         }
                     } else {
                         Move m = {r, c, tr, tc};
+                        // Detect en passant: pawn diagonal to empty square
+                        if ((piece == 'P' || piece == 'p') && tc != c && board[tr][tc] == '.')
+                            m.enPassant = true;
                         makeMove(m);
                         if (!isInCheck(whiteTurn))
                             moves.push_back(m);
@@ -358,8 +374,10 @@ void Board::makeMove(Move& move) {
     char moving = board[move.fromR][move.fromC];
     move.captured = board[move.toR][move.toC];
     move.prevCastleRights = castleRights;
+    move.prevEpFile = epFile;
 
-    // XOR out old castling rights contribution
+    // XOR out old ep and castle contributions
+    if (epFile >= 0) hash ^= zobristEP[epFile];
     for (int i = 0; i < 4; i++)
         if (castleRights & (1 << i))
             hash ^= zobristCastle[i];
@@ -399,6 +417,22 @@ void Board::makeMove(Move& move) {
 
     board[move.toR][move.toC]    = moving;
     board[move.fromR][move.fromC] = '.';
+
+    // En passant: remove the captured pawn from the side square
+    if (move.enPassant) {
+        char capturedPawn = (moving == 'P') ? 'p' : 'P';
+        hash ^= zobristTable[pieceIndex(capturedPawn)][move.fromR * 8 + move.toC];
+        board[move.fromR][move.toC] = '.';
+    }
+
+    // Set new ep file: only after a double pawn push
+    if (moving == 'P' && move.fromR == 6 && move.toR == 4)
+        epFile = move.toC;
+    else if (moving == 'p' && move.fromR == 1 && move.toR == 3)
+        epFile = move.toC;
+    else
+        epFile = -1;
+    if (epFile >= 0) hash ^= zobristEP[epFile];
 
     // Castling: also move the rook
     if (moving == 'K' && move.fromC == 4 && abs(move.toC - 4) == 2) {
@@ -466,12 +500,24 @@ void Board::undoMove(const Move& move) {
     // Undo piece hash (use originalPiece so promotion is correctly reversed)
     hash ^= zobristTable[pieceIndex(moving)][move.toR * 8 + move.toC];
     hash ^= zobristTable[pieceIndex(originalPiece)][move.fromR * 8 + move.fromC];
-    if (move.captured != '.')
+    if (move.captured != '.' && !move.enPassant)
         hash ^= zobristTable[pieceIndex(move.captured)][move.toR * 8 + move.toC];
     hash ^= zobristSideToMove;
 
     board[move.fromR][move.fromC] = originalPiece;
-    board[move.toR][move.toC]     = move.captured;
+    board[move.toR][move.toC]     = move.enPassant ? '.' : move.captured;
+
+    // Restore the en-passant captured pawn to its original square
+    if (move.enPassant) {
+        char capturedPawn = (originalPiece == 'P') ? 'p' : 'P';
+        hash ^= zobristTable[pieceIndex(capturedPawn)][move.fromR * 8 + move.toC];
+        board[move.fromR][move.toC] = capturedPawn;
+    }
+
+    // Restore ep file
+    if (epFile >= 0) hash ^= zobristEP[epFile];
+    epFile = move.prevEpFile;
+    if (epFile >= 0) hash ^= zobristEP[epFile];
 
     // Restore castling rights
     for (int i = 0; i < 4; i++)
@@ -569,23 +615,32 @@ int Board::minimax(int depth, bool maximizingPlayer, int alpha, int beta) {
 Move Board::getBestMove(int depth, bool whiteTurn) {
     vector<Move> moves = generateAllMoves(whiteTurn);
     if (moves.empty()) return Move{};
+
     Move bestMove = moves[0];
 
-    if (whiteTurn) {
-        int bestEval = INT_MIN;
+    for (int d = 1; d <= depth; d++) {
+        int bestEval = whiteTurn ? INT_MIN : INT_MAX;
+        Move iterBest = moves[0];
+
         for (Move& m : moves) {
             makeMove(m);
-            int eval = minimax(depth - 1, false, INT_MIN, INT_MAX);
+            int eval = minimax(d - 1, !whiteTurn, INT_MIN, INT_MAX);
             undoMove(m);
-            if (eval > bestEval) { bestEval = eval; bestMove = m; }
+
+            bool better = whiteTurn ? (eval > bestEval) : (eval < bestEval);
+            if (better) { bestEval = eval; iterBest = m; }
         }
-    } else {
-        int bestEval = INT_MAX;
-        for (Move& m : moves) {
-            makeMove(m);
-            int eval = minimax(depth - 1, true, INT_MIN, INT_MAX);
-            undoMove(m);
-            if (eval < bestEval) { bestEval = eval; bestMove = m; }
+
+        bestMove = iterBest;
+
+        // Move the best move from this depth to the front so the next depth
+        // searches it first, improving alpha-beta cutoffs
+        for (int i = 0; i < (int)moves.size(); i++) {
+            if (moves[i].fromR == bestMove.fromR && moves[i].fromC == bestMove.fromC &&
+                moves[i].toR  == bestMove.toR   && moves[i].toC  == bestMove.toC) {
+                swap(moves[0], moves[i]);
+                break;
+            }
         }
     }
 
