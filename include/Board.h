@@ -27,7 +27,8 @@ private:
         int flag; // 0=EXACT, 1=LOWER, 2=UPPER
     };
     std::vector<TTEntry> transpositionTable;
-    Move killers[64][2]; // two killer slots per remaining-depth level
+    Move killers[64][2];   // two killer slots per remaining-depth level
+    int  history[64][64];  // history[fromSq][toSq] — quiet-move cutoff frequency
 
     void initZobrist();
     uint64_t computeHash() const;

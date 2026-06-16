@@ -46,6 +46,7 @@ void Board::resetToStart() {
     hash = computeHash();
     fill(transpositionTable.begin(), transpositionTable.end(), TTEntry{});
     for (auto& pair : killers) { pair[0] = Move{}; pair[1] = Move{}; }
+    for (auto& row : history) for (auto& h : row) h = 0;
 }
 
 void Board::setFromFen(const std::string& fen) {
@@ -115,6 +116,8 @@ std::string Board::moveToUci(const Move& m) const {
 }
 
 Move Board::getBestMoveTime(int maxDepth, int timeLimitMs) {
+    for (auto& row : history) for (auto& h : row) h /= 2;
+
     using namespace std::chrono;
     auto start = steady_clock::now();
 
@@ -151,7 +154,8 @@ Move Board::getBestMoveTime(int maxDepth, int timeLimitMs) {
         }
 
         auto ms = duration_cast<milliseconds>(steady_clock::now() - start).count();
-        cout << "info depth " << d << " score cp " << bestEval
+        int engineScore = whiteTurn ? bestEval : -bestEval;
+        cout << "info depth " << d << " score cp " << engineScore
              << " time " << ms << "\n";
         cout.flush();
     }
@@ -710,14 +714,17 @@ int Board::minimax(int depth, bool maximizingPlayer, int alpha, int beta) {
         return quiescence(alpha, beta, maximizingPlayer);
 
     auto moveScore = [&](const Move& m) -> int {
+        // Captures always first, ordered by MVV-LVA
         if (m.captured != '.')
-            return MVV_VAL[pieceIndex(m.captured)] * 10
-                 - MVV_VAL[pieceIndex(board[m.fromR][m.fromC])];
+            return 1000000 + MVV_VAL[pieceIndex(m.captured)] * 10
+                           - MVV_VAL[pieceIndex(board[m.fromR][m.fromC])];
+        // Killers next
         if (m.fromR == killers[depth][0].fromR && m.fromC == killers[depth][0].fromC &&
-            m.toR   == killers[depth][0].toR   && m.toC   == killers[depth][0].toC) return -1;
+            m.toR   == killers[depth][0].toR   && m.toC   == killers[depth][0].toC) return 900000;
         if (m.fromR == killers[depth][1].fromR && m.fromC == killers[depth][1].fromC &&
-            m.toR   == killers[depth][1].toR   && m.toC   == killers[depth][1].toC) return -2;
-        return -10000;
+            m.toR   == killers[depth][1].toR   && m.toC   == killers[depth][1].toC) return 800000;
+        // Quiet moves ordered by history score
+        return history[m.fromR * 8 + m.fromC][m.toR * 8 + m.toC];
     };
     sort(moves.begin(), moves.end(), [&](const Move& a, const Move& b) {
         return moveScore(a) > moveScore(b);
@@ -735,7 +742,11 @@ int Board::minimax(int depth, bool maximizingPlayer, int alpha, int beta) {
             if (val > best) best = val;
             if (best > alpha) alpha = best;
             if (alpha >= beta) {
-                if (m.captured == '.') { killers[depth][1] = killers[depth][0]; killers[depth][0] = m; }
+                if (m.captured == '.') {
+                    killers[depth][1] = killers[depth][0];
+                    killers[depth][0] = m;
+                    history[m.fromR * 8 + m.fromC][m.toR * 8 + m.toC] += depth * depth;
+                }
                 break;
             }
         }
@@ -748,7 +759,11 @@ int Board::minimax(int depth, bool maximizingPlayer, int alpha, int beta) {
             if (val < best) best = val;
             if (best < beta) beta = best;
             if (alpha >= beta) {
-                if (m.captured == '.') { killers[depth][1] = killers[depth][0]; killers[depth][0] = m; }
+                if (m.captured == '.') {
+                    killers[depth][1] = killers[depth][0];
+                    killers[depth][0] = m;
+                    history[m.fromR * 8 + m.fromC][m.toR * 8 + m.toC] += depth * depth;
+                }
                 break;
             }
         }
@@ -766,6 +781,8 @@ int Board::minimax(int depth, bool maximizingPlayer, int alpha, int beta) {
 }
 
 Move Board::getBestMove(int depth, bool whiteTurn) {
+    for (auto& row : history) for (auto& h : row) h /= 2;
+
     vector<Move> moves = generateAllMoves(whiteTurn);
     if (moves.empty()) return Move{};
 
