@@ -5,6 +5,8 @@
 #include <climits>
 #include <random>
 #include <algorithm>
+#include <chrono>
+#include <sstream>
 
 using namespace std;
 
@@ -13,7 +15,17 @@ static const uint8_t WQ_CASTLE = 2;
 static const uint8_t BK_CASTLE = 4;
 static const uint8_t BQ_CASTLE = 8;
 
+// MVV-LVA piece values indexed by pieceIndex() (P=0..K=5, p=6..k=11)
+static const int MVV_VAL[12] = {100, 320, 330, 500, 900, 10000,
+                                 100, 320, 330, 500, 900, 10000};
+
 Board::Board() {
+    initZobrist();
+    transpositionTable.resize(TT_SIZE);
+    resetToStart();
+}
+
+void Board::resetToStart() {
     char initial[8][8] = {
         {'r','n','b','q','k','b','n','r'},
         {'p','p','p','p','p','p','p','p'},
@@ -30,9 +42,121 @@ Board::Board() {
 
     castleRights = WK_CASTLE | WQ_CASTLE | BK_CASTLE | BQ_CASTLE;
     epFile = -1;
-    initZobrist();
+    whiteTurn = true;
     hash = computeHash();
-    transpositionTable.resize(TT_SIZE);
+    fill(transpositionTable.begin(), transpositionTable.end(), TTEntry{});
+    for (auto& pair : killers) { pair[0] = Move{}; pair[1] = Move{}; }
+}
+
+void Board::setFromFen(const std::string& fen) {
+    for (int i = 0; i < 8; i++)
+        for (int j = 0; j < 8; j++)
+            board[i][j] = '.';
+    castleRights = 0;
+    epFile = -1;
+    fill(transpositionTable.begin(), transpositionTable.end(), TTEntry{});
+
+    istringstream ss(fen);
+    string pieces, side, castling, ep;
+    ss >> pieces >> side >> castling >> ep;
+
+    // Piece placement: FEN rank 8 first (row 0 in our array)
+    int r = 0, c = 0;
+    for (char ch : pieces) {
+        if (ch == '/') { r++; c = 0; }
+        else if (isdigit(ch)) c += ch - '0';
+        else board[r][c++] = ch;
+    }
+
+    whiteTurn = (side == "w");
+
+    for (char ch : castling) {
+        if      (ch == 'K') castleRights |= WK_CASTLE;
+        else if (ch == 'Q') castleRights |= WQ_CASTLE;
+        else if (ch == 'k') castleRights |= BK_CASTLE;
+        else if (ch == 'q') castleRights |= BQ_CASTLE;
+    }
+
+    if (ep.size() >= 2 && ep[0] != '-')
+        epFile = ep[0] - 'a';
+
+    hash = computeHash();
+    if (!whiteTurn) hash ^= zobristSideToMove;
+}
+
+Move Board::parseUciMove(const std::string& uci) {
+    Move m;
+    m.fromC = uci[0] - 'a';
+    m.fromR = 8 - (uci[1] - '0');
+    m.toC   = uci[2] - 'a';
+    m.toR   = 8 - (uci[3] - '0');
+
+    if (uci.size() >= 5) {
+        char p = uci[4];
+        char piece = board[m.fromR][m.fromC];
+        m.promotion = isupper(piece) ? (char)toupper(p) : (char)tolower(p);
+    }
+
+    char piece = board[m.fromR][m.fromC];
+    if ((piece == 'P' || piece == 'p') && m.fromC != m.toC && board[m.toR][m.toC] == '.')
+        m.enPassant = true;
+
+    return m;
+}
+
+std::string Board::moveToUci(const Move& m) const {
+    std::string s;
+    s += char('a' + m.fromC);
+    s += char('0' + 8 - m.fromR);
+    s += char('a' + m.toC);
+    s += char('0' + 8 - m.toR);
+    if (m.promotion != '.') s += (char)tolower(m.promotion);
+    return s;
+}
+
+Move Board::getBestMoveTime(int maxDepth, int timeLimitMs) {
+    using namespace std::chrono;
+    auto start = steady_clock::now();
+
+    vector<Move> moves = generateAllMoves(whiteTurn);
+    if (moves.empty()) return Move{-1, -1, -1, -1};
+
+    Move bestMove = moves[0];
+
+    for (int d = 1; d <= maxDepth; d++) {
+        if (timeLimitMs > 0) {
+            auto ms = duration_cast<milliseconds>(steady_clock::now() - start).count();
+            if (ms >= timeLimitMs) break;
+        }
+
+        int bestEval = whiteTurn ? INT_MIN : INT_MAX;
+        Move iterBest = moves[0];
+
+        for (Move& mv : moves) {
+            makeMove(mv);
+            int eval = minimax(d - 1, !whiteTurn, INT_MIN, INT_MAX);
+            undoMove(mv);
+            bool better = whiteTurn ? (eval > bestEval) : (eval < bestEval);
+            if (better) { bestEval = eval; iterBest = mv; }
+        }
+
+        bestMove = iterBest;
+
+        for (int i = 0; i < (int)moves.size(); i++) {
+            if (moves[i].fromR == bestMove.fromR && moves[i].fromC == bestMove.fromC &&
+                moves[i].toR  == bestMove.toR   && moves[i].toC  == bestMove.toC) {
+                swap(moves[0], moves[i]);
+                break;
+            }
+        }
+
+        auto ms = duration_cast<milliseconds>(steady_clock::now() - start).count();
+        cout << "info depth " << d << " score cp " << bestEval
+             << " time " << ms << "\n";
+        cout.flush();
+    }
+
+    return bestMove;
 }
 
 int Board::pieceIndex(char piece) const {
@@ -541,6 +665,11 @@ int Board::quiescence(int alpha, int beta, bool maximizingPlayer) {
     }
 
     vector<Move> moves = generateAllMoves(maximizingPlayer);
+    sort(moves.begin(), moves.end(), [&](const Move& a, const Move& b) {
+        if (a.captured == '.' || b.captured == '.') return (a.captured != '.') > (b.captured != '.');
+        return MVV_VAL[pieceIndex(a.captured)] * 10 - MVV_VAL[pieceIndex(board[a.fromR][a.fromC])]
+             > MVV_VAL[pieceIndex(b.captured)] * 10 - MVV_VAL[pieceIndex(board[b.fromR][b.fromC])];
+    });
     for (Move& m : moves) {
         if (m.captured == '.') continue;
         makeMove(m);
@@ -567,15 +696,31 @@ int Board::minimax(int depth, bool maximizingPlayer, int alpha, int beta) {
         if (alpha >= beta) return entry.score;
     }
 
+    vector<Move> moves = generateAllMoves(maximizingPlayer);
+    if (moves.empty()) {
+        if (isInCheck(maximizingPlayer))
+            // Checkmate: penalise by remaining depth so engine prefers faster mates
+            return maximizingPlayer ? -(100000 + depth) : (100000 + depth);
+        // Stalemate: treat as 0 (draw). Engine avoids this when winning,
+        // but will accept it when losing.
+        return 0;
+    }
+
     if (depth == 0)
         return quiescence(alpha, beta, maximizingPlayer);
 
-    vector<Move> moves = generateAllMoves(maximizingPlayer);
-    if (moves.empty())
-        return evaluate();
-
-    sort(moves.begin(), moves.end(), [](const Move& a, const Move& b) {
-        return (a.captured != '.') > (b.captured != '.');
+    auto moveScore = [&](const Move& m) -> int {
+        if (m.captured != '.')
+            return MVV_VAL[pieceIndex(m.captured)] * 10
+                 - MVV_VAL[pieceIndex(board[m.fromR][m.fromC])];
+        if (m.fromR == killers[depth][0].fromR && m.fromC == killers[depth][0].fromC &&
+            m.toR   == killers[depth][0].toR   && m.toC   == killers[depth][0].toC) return -1;
+        if (m.fromR == killers[depth][1].fromR && m.fromC == killers[depth][1].fromC &&
+            m.toR   == killers[depth][1].toR   && m.toC   == killers[depth][1].toC) return -2;
+        return -10000;
+    };
+    sort(moves.begin(), moves.end(), [&](const Move& a, const Move& b) {
+        return moveScore(a) > moveScore(b);
     });
 
     int originalAlpha = alpha;
@@ -585,19 +730,27 @@ int Board::minimax(int depth, bool maximizingPlayer, int alpha, int beta) {
         best = INT_MIN;
         for (Move& m : moves) {
             makeMove(m);
-            best = max(best, minimax(depth - 1, false, alpha, beta));
+            int val = minimax(depth - 1, false, alpha, beta);
             undoMove(m);
-            alpha = max(alpha, best);
-            if (alpha >= beta) break;
+            if (val > best) best = val;
+            if (best > alpha) alpha = best;
+            if (alpha >= beta) {
+                if (m.captured == '.') { killers[depth][1] = killers[depth][0]; killers[depth][0] = m; }
+                break;
+            }
         }
     } else {
         best = INT_MAX;
         for (Move& m : moves) {
             makeMove(m);
-            best = min(best, minimax(depth - 1, true, alpha, beta));
+            int val = minimax(depth - 1, true, alpha, beta);
             undoMove(m);
-            beta = min(beta, best);
-            if (alpha >= beta) break;
+            if (val < best) best = val;
+            if (best < beta) beta = best;
+            if (alpha >= beta) {
+                if (m.captured == '.') { killers[depth][1] = killers[depth][0]; killers[depth][0] = m; }
+                break;
+            }
         }
     }
 

@@ -1,6 +1,7 @@
 #ifndef BOARD_H
 #define BOARD_H
 #include <vector>
+#include <string>
 #include <cstdint>
 #include <climits>
 #include "Move.h"
@@ -26,6 +27,7 @@ private:
         int flag; // 0=EXACT, 1=LOWER, 2=UPPER
     };
     std::vector<TTEntry> transpositionTable;
+    Move killers[64][2]; // two killer slots per remaining-depth level
 
     void initZobrist();
     uint64_t computeHash() const;
@@ -35,7 +37,15 @@ private:
     int countMobility(int r, int c) const;
 
 public:
+    bool whiteTurn;
+
     Board();
+    void resetToStart();
+    void setFromFen(const std::string& fen);
+    Move parseUciMove(const std::string& uci);
+    std::string moveToUci(const Move& m) const;
+    Move getBestMoveTime(int maxDepth, int timeLimitMs);
+
     void printBoard();
     void movePiece(int fromR, int fromC, int toR, int toC);
     bool isValidMove(int fromR, int fromC, int toR, int toC);

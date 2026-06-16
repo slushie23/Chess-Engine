@@ -45,6 +45,7 @@ CMakeFiles/chess.dir/src/Board.cpp.obj: C:/Users/sahot/Documents/GitHub/Chess_En
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/node_handle.h \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/ostream.tcc \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/ostream_insert.h \
+  C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/parse_numbers.h \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/postypes.h \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/predefined_ops.h \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/ptr_traits.h \
@@ -54,6 +55,7 @@ CMakeFiles/chess.dir/src/Board.cpp.obj: C:/Users/sahot/Documents/GitHub/Chess_En
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/range_cmp.h \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/refwrap.h \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/specfun.h \
+  C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/sstream.tcc \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/std_abs.h \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/std_function.h \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/stl_algo.h \
@@ -81,6 +83,7 @@ CMakeFiles/chess.dir/src/Board.cpp.obj: C:/Users/sahot/Documents/GitHub/Chess_En
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/vector.tcc \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/cctype \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/cerrno \
+  C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/chrono \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/climits \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/clocale \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/cmath \
@@ -88,6 +91,7 @@ CMakeFiles/chess.dir/src/Board.cpp.obj: C:/Users/sahot/Documents/GitHub/Chess_En
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/cstdint \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/cstdio \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/cstdlib \
+  C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/ctime \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/cwchar \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/cwctype \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/debug/assertions.h \
@@ -116,6 +120,8 @@ CMakeFiles/chess.dir/src/Board.cpp.obj: C:/Users/sahot/Documents/GitHub/Chess_En
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/pstl/glue_numeric_defs.h \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/pstl/pstl_config.h \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/random \
+  C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/ratio \
+  C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/sstream \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/stdexcept \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/stdlib.h \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/streambuf \
@@ -159,6 +165,7 @@ CMakeFiles/chess.dir/src/Board.cpp.obj: C:/Users/sahot/Documents/GitHub/Chess_En
   C:/TDM-GCC-64/x86_64-w64-mingw32/include/_mingw_off_t.h \
   C:/TDM-GCC-64/x86_64-w64-mingw32/include/_mingw_secapi.h \
   C:/TDM-GCC-64/x86_64-w64-mingw32/include/_mingw_stat64.h \
+  C:/TDM-GCC-64/x86_64-w64-mingw32/include/_timeval.h \
   C:/TDM-GCC-64/x86_64-w64-mingw32/include/corecrt.h \
   C:/TDM-GCC-64/x86_64-w64-mingw32/include/corecrt_startup.h \
   C:/TDM-GCC-64/x86_64-w64-mingw32/include/corecrt_stdio_config.h \
@@ -174,6 +181,7 @@ CMakeFiles/chess.dir/src/Board.cpp.obj: C:/Users/sahot/Documents/GitHub/Chess_En
   C:/TDM-GCC-64/x86_64-w64-mingw32/include/pthread.h \
   C:/TDM-GCC-64/x86_64-w64-mingw32/include/pthread_compat.h \
   C:/TDM-GCC-64/x86_64-w64-mingw32/include/pthread_signal.h \
+  C:/TDM-GCC-64/x86_64-w64-mingw32/include/pthread_time.h \
   C:/TDM-GCC-64/x86_64-w64-mingw32/include/pthread_unistd.h \
   C:/TDM-GCC-64/x86_64-w64-mingw32/include/sdks/_mingw_ddk.h \
   C:/TDM-GCC-64/x86_64-w64-mingw32/include/sec_api/stdio_s.h \
@@ -188,6 +196,7 @@ CMakeFiles/chess.dir/src/Board.cpp.obj: C:/Users/sahot/Documents/GitHub/Chess_En
   C:/TDM-GCC-64/x86_64-w64-mingw32/include/swprintf.inl \
   C:/TDM-GCC-64/x86_64-w64-mingw32/include/sys/timeb.h \
   C:/TDM-GCC-64/x86_64-w64-mingw32/include/sys/types.h \
+  C:/TDM-GCC-64/x86_64-w64-mingw32/include/time.h \
   C:/TDM-GCC-64/x86_64-w64-mingw32/include/vadefs.h \
   C:/TDM-GCC-64/x86_64-w64-mingw32/include/wchar.h \
   C:/TDM-GCC-64/x86_64-w64-mingw32/include/wctype.h \
@@ -234,6 +243,7 @@ CMakeFiles/chess.dir/src/main.cpp.obj: C:/Users/sahot/Documents/GitHub/Chess_Eng
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/ptr_traits.h \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/range_access.h \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/range_cmp.h \
+  C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/sstream.tcc \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/std_abs.h \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/stl_algobase.h \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/stl_bvector.h \
@@ -277,6 +287,7 @@ CMakeFiles/chess.dir/src/main.cpp.obj: C:/Users/sahot/Documents/GitHub/Chess_Eng
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/new \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/ostream \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/pstl/pstl_config.h \
+  C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/sstream \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/stdexcept \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/stdlib.h \
   C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/streambuf \
@@ -347,6 +358,10 @@ C:/Users/sahot/Documents/GitHub/Chess_Engine/Chess-Engine/src/Board.cpp:
 
 C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/std_abs.h:
 
+C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/istream:
+
+C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/parse_numbers.h:
+
 C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include-fixed/limits.h:
 
 C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/basic_string.tcc:
@@ -368,6 +383,8 @@ C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/backward/binders.h:
 C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/exception:
 
 C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/std_function.h:
+
+C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/sstream:
 
 C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/array:
 
@@ -397,11 +414,11 @@ C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/functional_hash
 
 C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/locale_facets.h:
 
+C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/sstream.tcc:
+
 C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/new:
 
 C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/cxxabi_forced.h:
-
-C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/stl_iterator_base_types.h:
 
 C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/cxxabi_init_exception.h:
 
@@ -495,6 +512,8 @@ C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/refwrap.h:
 
 C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/stl_iterator_base_funcs.h:
 
+C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/stl_iterator_base_types.h:
+
 C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/stl_numeric.h:
 
 C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/bits/stl_pair.h:
@@ -537,6 +556,10 @@ C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/random:
 
 C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/cerrno:
 
+C:/TDM-GCC-64/x86_64-w64-mingw32/include/swprintf.inl:
+
+C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/chrono:
+
 C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/cstdlib:
 
 C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/climits:
@@ -552,6 +575,8 @@ C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/x86_64-w64-mingw32/b
 C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/cstdint:
 
 C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/cstdio:
+
+C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/ctime:
 
 C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/cwctype:
 
@@ -583,8 +608,6 @@ C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/iosfwd:
 
 C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/iostream:
 
-C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/istream:
-
 C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/utility:
 
 C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/limits:
@@ -604,6 +627,8 @@ C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/pstl/glue_algorithm_
 C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/pstl/glue_numeric_defs.h:
 
 C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/pstl/pstl_config.h:
+
+C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/ratio:
 
 C:/TDM-GCC-64/lib/gcc/x86_64-w64-mingw32/10.3.0/include/c++/stdexcept:
 
@@ -677,6 +702,8 @@ C:/TDM-GCC-64/x86_64-w64-mingw32/include/malloc.h:
 
 C:/TDM-GCC-64/x86_64-w64-mingw32/include/_mingw_stat64.h:
 
+C:/TDM-GCC-64/x86_64-w64-mingw32/include/_timeval.h:
+
 C:/TDM-GCC-64/x86_64-w64-mingw32/include/corecrt_stdio_config.h:
 
 C:/TDM-GCC-64/x86_64-w64-mingw32/include/corecrt_wstdlib.h:
@@ -695,6 +722,8 @@ C:/TDM-GCC-64/x86_64-w64-mingw32/include/pthread_compat.h:
 
 C:/TDM-GCC-64/x86_64-w64-mingw32/include/pthread_signal.h:
 
+C:/TDM-GCC-64/x86_64-w64-mingw32/include/pthread_time.h:
+
 C:/TDM-GCC-64/x86_64-w64-mingw32/include/sdks/_mingw_ddk.h:
 
 C:/TDM-GCC-64/x86_64-w64-mingw32/include/sec_api/wchar_s.h:
@@ -709,9 +738,9 @@ C:/TDM-GCC-64/x86_64-w64-mingw32/include/stdint.h:
 
 C:/TDM-GCC-64/x86_64-w64-mingw32/include/stdio.h:
 
-C:/TDM-GCC-64/x86_64-w64-mingw32/include/swprintf.inl:
-
 C:/TDM-GCC-64/x86_64-w64-mingw32/include/sys/timeb.h:
+
+C:/TDM-GCC-64/x86_64-w64-mingw32/include/time.h:
 
 C:/TDM-GCC-64/x86_64-w64-mingw32/include/sys/types.h:
 
