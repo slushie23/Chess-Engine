@@ -120,30 +120,38 @@ static void runUCI() {
         }
         else if (line.rfind("go", 0) == 0) {
             int depth = 6, timeLimitMs = 0;
-            int wtime = 0, btime = 0, winc = 0, binc = 0;
+            int wtime = 0, btime = 0, winc = 0, binc = 0, movestogo = 0;
 
-            istringstream iss(line.size() > 3 ? line.substr(3) : "");
+            // substr(2) safely skips "go" and leaves the space+args for >> parsing
+            istringstream iss(line.size() > 2 ? line.substr(2) : "");
             string token;
             while (iss >> token) {
-                if      (token == "depth")    iss >> depth;
-                else if (token == "movetime") { iss >> timeLimitMs; depth = 100; }
-                else if (token == "wtime")    iss >> wtime;
-                else if (token == "btime")    iss >> btime;
-                else if (token == "winc")     iss >> winc;
-                else if (token == "binc")     iss >> binc;
-                else if (token == "infinite") { depth = 8; timeLimitMs = 0; }
+                if      (token == "depth")     iss >> depth;
+                else if (token == "movetime")  { iss >> timeLimitMs; depth = 100; }
+                else if (token == "wtime")     iss >> wtime;
+                else if (token == "btime")     iss >> btime;
+                else if (token == "winc")      iss >> winc;
+                else if (token == "binc")      iss >> binc;
+                else if (token == "movestogo") iss >> movestogo;
+                else if (token == "infinite")  { depth = 7; timeLimitMs = 0; }
             }
 
             if (wtime > 0 || btime > 0) {
                 int myTime = board.whiteTurn ? wtime : btime;
                 int myInc  = board.whiteTurn ? winc  : binc;
-                timeLimitMs = max(50, myTime / 20 + myInc / 2);
+                // Use movestogo when provided; otherwise assume ~25 moves remaining
+                int divisor = (movestogo > 0) ? movestogo + 2 : 25;
+                timeLimitMs = max(50, myTime / divisor + myInc / 2);
                 depth = 100;
             }
 
             Move best = board.getBestMoveTime(depth, timeLimitMs);
             cout << "bestmove " << (best.fromR < 0 ? "0000" : board.moveToUci(best)) << "\n";
             cout.flush();
+        }
+        else if (line == "stop") {
+            // Single-threaded: search already finished and bestmove already sent.
+            // Nothing to do, but we must not crash on this command.
         }
         else if (line == "quit") {
             break;
