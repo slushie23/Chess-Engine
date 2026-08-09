@@ -50,6 +50,7 @@ static void runInteractive() {
         if (!found) { cout << "Invalid move!\n"; continue; }
 
         board.movePiece(fromR, fromC, toR, toC);
+        board.whiteTurn = false;
 
         // Engine (Black)
         board.printBoard();
@@ -65,8 +66,12 @@ static void runInteractive() {
         Move engineMove = board.getBestMove(6, false);
         cout << "Black plays: "
              << char('a' + engineMove.fromC) << (8 - engineMove.fromR) << " to "
-             << char('a' + engineMove.toC)   << (8 - engineMove.toR)   << "\n";
-        board.movePiece(engineMove.fromR, engineMove.fromC, engineMove.toR, engineMove.toC);
+             << char('a' + engineMove.toC)   << (8 - engineMove.toR);
+        if (engineMove.promotion != '.') cout << "=" << (char)tolower(engineMove.promotion);
+        cout << "\n";
+        // Use makeMove directly so the engine's exact promotion choice is respected
+        board.makeMove(engineMove);
+        board.whiteTurn = true;
     }
 }
 

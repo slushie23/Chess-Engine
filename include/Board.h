@@ -21,14 +21,19 @@ private:
     static const int TT_SIZE = 1 << 20; // ~1M slots
 
     struct TTEntry {
-        uint64_t key;
-        int depth;
-        int score;
-        int flag; // 0=EXACT, 1=LOWER, 2=UPPER
+        uint64_t key  = 0;
+        int depth     = 0;
+        int score     = 0;
+        int flag      = 0;    // 0=EXACT, 1=LOWER, 2=UPPER
+        uint8_t ttFrom  = 255; // fromR*8+fromC, 255=none
+        uint8_t ttTo    = 255; // toR*8+toC
+        char    ttPromo = '.';
     };
     std::vector<TTEntry> transpositionTable;
     Move killers[64][2];   // two killer slots per remaining-depth level
     int  history[64][64];  // history[fromSq][toSq] — quiet-move cutoff frequency
+    std::vector<uint64_t> hashHistory; // position hashes for repetition detection
+    int halfMoveClock = 0;
 
     void initZobrist();
     uint64_t computeHash() const;
@@ -64,7 +69,7 @@ public:
 
     void makeMove(Move& move);
     void undoMove(const Move& move);
-    int minimax(int depth, bool maximizingPlayer, int alpha, int beta);
+    int minimax(int depth, bool maximizingPlayer, int alpha, int beta, bool nullMoveAllowed = true);
     Move getBestMove(int depth, bool whiteTurn);
 
     std::vector<Move> generateAllMoves(bool whiteTurn);

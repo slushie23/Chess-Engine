@@ -10,6 +10,7 @@ struct Move {
     char promotion = '.'; // '.' = none; else the piece char (e.g. 'Q','q')
     int prevEpFile = -1;  // ep file before this move (-1 = none)
     bool enPassant = false;
+    int prevHalfMoveClock = 0;
 };
 
 #endif

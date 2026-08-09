@@ -42,11 +42,13 @@ void Board::resetToStart() {
 
     castleRights = WK_CASTLE | WQ_CASTLE | BK_CASTLE | BQ_CASTLE;
     epFile = -1;
+    halfMoveClock = 0;
     whiteTurn = true;
     hash = computeHash();
     fill(transpositionTable.begin(), transpositionTable.end(), TTEntry{});
     for (auto& pair : killers) { pair[0] = Move{}; pair[1] = Move{}; }
     for (auto& row : history) for (auto& h : row) h = 0;
+    hashHistory.clear();
 }
 
 void Board::setFromFen(const std::string& fen) {
@@ -56,10 +58,15 @@ void Board::setFromFen(const std::string& fen) {
     castleRights = 0;
     epFile = -1;
     fill(transpositionTable.begin(), transpositionTable.end(), TTEntry{});
+    hashHistory.clear();
+    halfMoveClock = 0;
 
     istringstream ss(fen);
     string pieces, side, castling, ep;
     ss >> pieces >> side >> castling >> ep;
+    int halfMove = 0;
+    ss >> halfMove;
+    halfMoveClock = halfMove;
 
     // Piece placement: FEN rank 8 first (row 0 in our array)
     int r = 0, c = 0;
@@ -125,6 +132,7 @@ Move Board::getBestMoveTime(int maxDepth, int timeLimitMs) {
     if (moves.empty()) return Move{-1, -1, -1, -1};
 
     Move bestMove = moves[0];
+    int prevScore = 0;
 
     for (int d = 1; d <= maxDepth; d++) {
         if (timeLimitMs > 0) {
@@ -132,18 +140,35 @@ Move Board::getBestMoveTime(int maxDepth, int timeLimitMs) {
             if (ms >= timeLimitMs) break;
         }
 
+        const int ASP = 50;
+        int alpha = (d >= 3) ? prevScore - ASP : INT_MIN;
+        int beta  = (d >= 3) ? prevScore + ASP : INT_MAX;
+
         int bestEval = whiteTurn ? INT_MIN : INT_MAX;
         Move iterBest = moves[0];
 
-        for (Move& mv : moves) {
-            makeMove(mv);
-            int eval = minimax(d - 1, !whiteTurn, INT_MIN, INT_MAX);
-            undoMove(mv);
-            bool better = whiteTurn ? (eval > bestEval) : (eval < bestEval);
-            if (better) { bestEval = eval; iterBest = mv; }
+        // Search with aspiration window; on fail, retry with full window
+        for (int attempt = 0; attempt < 2; attempt++) {
+            bestEval = whiteTurn ? INT_MIN : INT_MAX;
+            iterBest = moves[0];
+
+            for (Move& mv : moves) {
+                makeMove(mv);
+                int eval = minimax(d - 1, !whiteTurn, alpha, beta);
+                undoMove(mv);
+                bool better = whiteTurn ? (eval > bestEval) : (eval < bestEval);
+                if (better) { bestEval = eval; iterBest = mv; }
+            }
+
+            if (attempt == 0 && d >= 3 && (bestEval <= alpha || bestEval >= beta)) {
+                alpha = INT_MIN; beta = INT_MAX; // widen to full window and retry
+            } else {
+                break;
+            }
         }
 
-        bestMove = iterBest;
+        prevScore = bestEval;
+        bestMove  = iterBest;
 
         for (int i = 0; i < (int)moves.size(); i++) {
             if (moves[i].fromR == bestMove.fromR && moves[i].fromC == bestMove.fromC &&
@@ -499,10 +524,16 @@ bool Board::isInCheck(bool white) const {
 }
 
 void Board::makeMove(Move& move) {
+    hashHistory.push_back(hash); // record pre-move position for repetition detection
     char moving = board[move.fromR][move.fromC];
     move.captured = board[move.toR][move.toC];
     move.prevCastleRights = castleRights;
     move.prevEpFile = epFile;
+    move.prevHalfMoveClock = halfMoveClock;
+    if (moving == 'P' || moving == 'p' || move.captured != '.' || move.enPassant)
+        halfMoveClock = 0;
+    else
+        halfMoveClock++;
 
     // XOR out old ep and castle contributions
     if (epFile >= 0) hash ^= zobristEP[epFile];
@@ -595,6 +626,8 @@ void Board::makeMove(Move& move) {
 }
 
 void Board::undoMove(const Move& move) {
+    hashHistory.pop_back();
+    halfMoveClock = move.prevHalfMoveClock;
     char moving = board[move.toR][move.toC];
     // If this was a promotion, the piece to put back at fromR,fromC is the pawn
     char originalPiece = (move.promotion != '.')
@@ -691,39 +724,76 @@ int Board::quiescence(int alpha, int beta, bool maximizingPlayer) {
     return maximizingPlayer ? alpha : beta;
 }
 
-int Board::minimax(int depth, bool maximizingPlayer, int alpha, int beta) {
-    TTEntry& entry = transpositionTable[hash % TT_SIZE];
-    if (entry.key == hash && entry.depth >= depth) {
-        if (entry.flag == 0) return entry.score;
-        if (entry.flag == 1) alpha = max(alpha, entry.score);
-        if (entry.flag == 2) beta  = min(beta,  entry.score);
-        if (alpha >= beta) return entry.score;
+int Board::minimax(int depth, bool maximizingPlayer, int alpha, int beta, bool nullMoveAllowed) {
+    // Repetition detection: if current position appeared before, treat as draw
+    if (halfMoveClock >= 100) return 0;
+    {
+        int limit = min((int)hashHistory.size(), halfMoveClock + 1);
+        int base  = (int)hashHistory.size() - limit;
+        for (int i = base; i < (int)hashHistory.size(); i++)
+            if (hashHistory[i] == hash) return 0;
     }
+
+    // TT lookup — extract best move even when depth is insufficient
+    TTEntry& entry = transpositionTable[hash % TT_SIZE];
+    Move ttMove; ttMove.fromR = -1;
+    if (entry.key == hash) {
+        if (entry.ttFrom != 255) {
+            ttMove.fromR = entry.ttFrom >> 3;
+            ttMove.fromC = entry.ttFrom & 7;
+            ttMove.toR   = entry.ttTo   >> 3;
+            ttMove.toC   = entry.ttTo   & 7;
+            ttMove.promotion = entry.ttPromo;
+        }
+        if (entry.depth >= depth) {
+            if (entry.flag == 0) return entry.score;
+            if (entry.flag == 1) alpha = max(alpha, entry.score);
+            if (entry.flag == 2) beta  = min(beta,  entry.score);
+            if (alpha >= beta) return entry.score;
+        }
+    }
+
+    if (depth == 0) return quiescence(alpha, beta, maximizingPlayer);
 
     vector<Move> moves = generateAllMoves(maximizingPlayer);
     if (moves.empty()) {
         if (isInCheck(maximizingPlayer))
-            // Checkmate: penalise by remaining depth so engine prefers faster mates
             return maximizingPlayer ? -(100000 + depth) : (100000 + depth);
-        // Stalemate: treat as 0 (draw). Engine avoids this when winning,
-        // but will accept it when losing.
         return 0;
     }
 
-    if (depth == 0)
-        return quiescence(alpha, beta, maximizingPlayer);
+    // Null move pruning
+    bool inCheck = isInCheck(maximizingPlayer);
+    if (nullMoveAllowed && depth >= 3 && !inCheck) {
+        int savedEpFile = epFile;
+        if (epFile >= 0) hash ^= zobristEP[epFile];
+        epFile = -1;
+        hash ^= zobristSideToMove;
 
+        int nullScore = minimax(depth - 3, !maximizingPlayer, alpha, beta, false);
+
+        hash ^= zobristSideToMove;
+        epFile = savedEpFile;
+        if (epFile >= 0) hash ^= zobristEP[epFile];
+
+        if (maximizingPlayer && nullScore >= beta) return beta;
+        if (!maximizingPlayer && nullScore <= alpha) return alpha;
+    }
+
+    // Move ordering: TT move > captures (MVV-LVA) > killers > history
     auto moveScore = [&](const Move& m) -> int {
-        // Captures always first, ordered by MVV-LVA
+        if (ttMove.fromR != -1 &&
+            m.fromR == ttMove.fromR && m.fromC == ttMove.fromC &&
+            m.toR   == ttMove.toR   && m.toC   == ttMove.toC   &&
+            m.promotion == ttMove.promotion)
+            return 2000000;
         if (m.captured != '.')
             return 1000000 + MVV_VAL[pieceIndex(m.captured)] * 10
                            - MVV_VAL[pieceIndex(board[m.fromR][m.fromC])];
-        // Killers next
         if (m.fromR == killers[depth][0].fromR && m.fromC == killers[depth][0].fromC &&
             m.toR   == killers[depth][0].toR   && m.toC   == killers[depth][0].toC) return 900000;
         if (m.fromR == killers[depth][1].fromR && m.fromC == killers[depth][1].fromC &&
             m.toR   == killers[depth][1].toR   && m.toC   == killers[depth][1].toC) return 800000;
-        // Quiet moves ordered by history score
         return history[m.fromR * 8 + m.fromC][m.toR * 8 + m.toC];
     };
     sort(moves.begin(), moves.end(), [&](const Move& a, const Move& b) {
@@ -732,17 +802,29 @@ int Board::minimax(int depth, bool maximizingPlayer, int alpha, int beta) {
 
     int originalAlpha = alpha;
     int best;
+    Move bestMoveInNode; bestMoveInNode.fromR = -1;
 
     if (maximizingPlayer) {
         best = INT_MIN;
+        int moveCount = 0;
         for (Move& m : moves) {
+            bool isQuiet = (m.captured == '.' && m.promotion == '.');
+            bool doLMR   = depth >= 3 && moveCount >= 4 && isQuiet && !inCheck;
             makeMove(m);
-            int val = minimax(depth - 1, false, alpha, beta);
+            int val;
+            if (doLMR) {
+                val = minimax(depth - 2, false, alpha, beta, true);
+                if (val > alpha)
+                    val = minimax(depth - 1, false, alpha, beta, true);
+            } else {
+                val = minimax(depth - 1, false, alpha, beta, true);
+            }
             undoMove(m);
-            if (val > best) best = val;
+            moveCount++;
+            if (val > best) { best = val; bestMoveInNode = m; }
             if (best > alpha) alpha = best;
             if (alpha >= beta) {
-                if (m.captured == '.') {
+                if (isQuiet) {
                     killers[depth][1] = killers[depth][0];
                     killers[depth][0] = m;
                     history[m.fromR * 8 + m.fromC][m.toR * 8 + m.toC] += depth * depth;
@@ -752,14 +834,25 @@ int Board::minimax(int depth, bool maximizingPlayer, int alpha, int beta) {
         }
     } else {
         best = INT_MAX;
+        int moveCount = 0;
         for (Move& m : moves) {
+            bool isQuiet = (m.captured == '.' && m.promotion == '.');
+            bool doLMR   = depth >= 3 && moveCount >= 4 && isQuiet && !inCheck;
             makeMove(m);
-            int val = minimax(depth - 1, true, alpha, beta);
+            int val;
+            if (doLMR) {
+                val = minimax(depth - 2, true, alpha, beta, true);
+                if (val < beta)
+                    val = minimax(depth - 1, true, alpha, beta, true);
+            } else {
+                val = minimax(depth - 1, true, alpha, beta, true);
+            }
             undoMove(m);
-            if (val < best) best = val;
+            moveCount++;
+            if (val < best) { best = val; bestMoveInNode = m; }
             if (best < beta) beta = best;
             if (alpha >= beta) {
-                if (m.captured == '.') {
+                if (isQuiet) {
                     killers[depth][1] = killers[depth][0];
                     killers[depth][0] = m;
                     history[m.fromR * 8 + m.fromC][m.toR * 8 + m.toC] += depth * depth;
@@ -773,6 +866,11 @@ int Board::minimax(int depth, bool maximizingPlayer, int alpha, int beta) {
     slot.key   = hash;
     slot.depth = depth;
     slot.score = best;
+    if (bestMoveInNode.fromR != -1) {
+        slot.ttFrom  = bestMoveInNode.fromR * 8 + bestMoveInNode.fromC;
+        slot.ttTo    = bestMoveInNode.toR   * 8 + bestMoveInNode.toC;
+        slot.ttPromo = bestMoveInNode.promotion;
+    }
     if      (best <= originalAlpha) slot.flag = 2;
     else if (best >= beta)          slot.flag = 1;
     else                            slot.flag = 0;
@@ -787,24 +885,38 @@ Move Board::getBestMove(int depth, bool whiteTurn) {
     if (moves.empty()) return Move{};
 
     Move bestMove = moves[0];
+    int prevScore = 0;
 
     for (int d = 1; d <= depth; d++) {
+        const int ASP = 50;
+        int alpha = (d >= 3) ? prevScore - ASP : INT_MIN;
+        int beta  = (d >= 3) ? prevScore + ASP : INT_MAX;
+
         int bestEval = whiteTurn ? INT_MIN : INT_MAX;
         Move iterBest = moves[0];
 
-        for (Move& m : moves) {
-            makeMove(m);
-            int eval = minimax(d - 1, !whiteTurn, INT_MIN, INT_MAX);
-            undoMove(m);
+        for (int attempt = 0; attempt < 2; attempt++) {
+            bestEval = whiteTurn ? INT_MIN : INT_MAX;
+            iterBest = moves[0];
 
-            bool better = whiteTurn ? (eval > bestEval) : (eval < bestEval);
-            if (better) { bestEval = eval; iterBest = m; }
+            for (Move& m : moves) {
+                makeMove(m);
+                int eval = minimax(d - 1, !whiteTurn, alpha, beta);
+                undoMove(m);
+                bool better = whiteTurn ? (eval > bestEval) : (eval < bestEval);
+                if (better) { bestEval = eval; iterBest = m; }
+            }
+
+            if (attempt == 0 && d >= 3 && (bestEval <= alpha || bestEval >= beta)) {
+                alpha = INT_MIN; beta = INT_MAX;
+            } else {
+                break;
+            }
         }
 
-        bestMove = iterBest;
+        prevScore = bestEval;
+        bestMove  = iterBest;
 
-        // Move the best move from this depth to the front so the next depth
-        // searches it first, improving alpha-beta cutoffs
         for (int i = 0; i < (int)moves.size(); i++) {
             if (moves[i].fromR == bestMove.fromR && moves[i].fromC == bestMove.fromC &&
                 moves[i].toR  == bestMove.toR   && moves[i].toC  == bestMove.toC) {
@@ -879,6 +991,19 @@ static const int kingPST[8][8] = {
     {-30,-40,-40,-50,-50,-40,-40,-30},
     {-30,-40,-40,-50,-50,-40,-40,-30},
 };
+
+static const int kingEndgamePST[8][8] = {
+    {-50,-40,-30,-20,-20,-30,-40,-50},
+    {-30,-20,-10,  0,  0,-10,-20,-30},
+    {-30,-10, 20, 30, 30, 20,-10,-30},
+    {-30,-10, 30, 40, 40, 30,-10,-30},
+    {-30,-10, 30, 40, 40, 30,-10,-30},
+    {-30,-10, 20, 30, 30, 20,-10,-30},
+    {-30,-30,  0,  0,  0,  0,-30,-30},
+    {-50,-30,-30,-30,-30,-30,-30,-50},
+};
+
+static const int passedPawnBonus[8] = {0, 10, 20, 35, 60, 90, 120, 0};
 
 int Board::kingSafety(bool white) const {
     char king = white ? 'K' : 'k';
@@ -974,6 +1099,28 @@ int Board::countMobility(int r, int c) const {
 }
 
 int Board::evaluate() {
+    // Pre-pass: endgame detection and pawn row data for passed pawn detection
+    int totalMat = 0;
+    int minBPawnRow[8], maxWPawnRow[8];
+    fill(minBPawnRow, minBPawnRow + 8, 8);  // 8 = no black pawn
+    fill(maxWPawnRow, maxWPawnRow + 8, -1); // -1 = no white pawn
+
+    for (int r = 0; r < 8; r++) {
+        for (int c = 0; c < 8; c++) {
+            char p = board[r][c];
+            switch (tolower(p)) {
+                case 'n': case 'b': totalMat += 300; break;
+                case 'r':           totalMat += 500; break;
+                case 'q':           totalMat += 900; break;
+                case 'p':
+                    if (p == 'p') { if (r < minBPawnRow[c]) minBPawnRow[c] = r; }
+                    else          { if (r > maxWPawnRow[c]) maxWPawnRow[c] = r; }
+                    break;
+            }
+        }
+    }
+    bool endgame = (totalMat <= 1300);
+
     int score = 0;
     for (int r = 0; r < 8; r++) {
         for (int c = 0; c < 8; c++) {
@@ -990,7 +1137,9 @@ int Board::evaluate() {
                 case 'b': material = 330; pst = bishopPST[pstRow][c]; break;
                 case 'r': material = 500; pst = rookPST[pstRow][c];   break;
                 case 'q': material = 900; pst = queenPST[pstRow][c];  break;
-                case 'k': material =   0; pst = kingPST[pstRow][c];   break;
+                case 'k': material = 0;
+                    pst = endgame ? kingEndgamePST[pstRow][c] : kingPST[pstRow][c];
+                    break;
             }
 
             int mobility = (tolower(piece) == 'k') ? 0 : countMobility(r, c);
@@ -1010,11 +1159,8 @@ int Board::evaluate() {
             else if (board[r][c] == 'p') bPawns[c]++;
 
     for (int c = 0; c < 8; c++) {
-        // Doubled: each extra pawn on the same file
         if (wPawns[c] > 1) score -= 20 * (wPawns[c] - 1);
         if (bPawns[c] > 1) score += 20 * (bPawns[c] - 1);
-
-        // Isolated: no friendly pawns on either adjacent file
         if (wPawns[c] > 0) {
             bool iso = (c == 0 || wPawns[c-1] == 0) && (c == 7 || wPawns[c+1] == 0);
             if (iso) score -= 15 * wPawns[c];
@@ -1022,6 +1168,23 @@ int Board::evaluate() {
         if (bPawns[c] > 0) {
             bool iso = (c == 0 || bPawns[c-1] == 0) && (c == 7 || bPawns[c+1] == 0);
             if (iso) score += 15 * bPawns[c];
+        }
+    }
+
+    // Passed pawn bonuses
+    for (int r = 1; r < 7; r++) {
+        for (int c = 0; c < 8; c++) {
+            if (board[r][c] == 'P') {
+                bool passed = true;
+                for (int fc = max(0, c-1); fc <= min(7, c+1) && passed; fc++)
+                    if (minBPawnRow[fc] < r) passed = false;
+                if (passed) score += passedPawnBonus[7 - r];
+            } else if (board[r][c] == 'p') {
+                bool passed = true;
+                for (int fc = max(0, c-1); fc <= min(7, c+1) && passed; fc++)
+                    if (maxWPawnRow[fc] > r) passed = false;
+                if (passed) score -= passedPawnBonus[r];
+            }
         }
     }
 
