@@ -10,6 +10,12 @@
 
 using namespace std;
 
+// Inline ASCII piece tests; the <cctype> versions are out-of-line library
+// calls on some toolchains, and these run for every square in eval and movegen.
+static inline bool isWhitePiece(char p) { return p >= 'A' && p <= 'Z'; }
+static inline bool isBlackPiece(char p) { return p >= 'a' && p <= 'z'; }
+static inline char pieceType(char p)    { return (char)(p | 0x20); } // lowercase letter; '.' unchanged
+
 static const uint8_t WK_CASTLE = 1;
 static const uint8_t WQ_CASTLE = 2;
 static const uint8_t BK_CASTLE = 4;
@@ -42,6 +48,8 @@ void Board::resetToStart() {
 
     castleRights = WK_CASTLE | WQ_CASTLE | BK_CASTLE | BQ_CASTLE;
     epFile = -1;
+    kingR[0] = 7; kingC[0] = 4;
+    kingR[1] = 0; kingC[1] = 4;
     halfMoveClock = 0;
     whiteTurn = true;
     hash = computeHash();
@@ -57,6 +65,7 @@ void Board::setFromFen(const std::string& fen) {
             board[i][j] = '.';
     castleRights = 0;
     epFile = -1;
+    kingR[0] = kingC[0] = kingR[1] = kingC[1] = -1;
     fill(transpositionTable.begin(), transpositionTable.end(), TTEntry{});
     hashHistory.clear();
     halfMoveClock = 0;
@@ -73,7 +82,11 @@ void Board::setFromFen(const std::string& fen) {
     for (char ch : pieces) {
         if (ch == '/') { r++; c = 0; }
         else if (isdigit(ch)) c += ch - '0';
-        else board[r][c++] = ch;
+        else {
+            if (ch == 'K') { kingR[0] = r; kingC[0] = c; }
+            if (ch == 'k') { kingR[1] = r; kingC[1] = c; }
+            board[r][c++] = ch;
+        }
     }
 
     whiteTurn = (side == "w");
@@ -102,7 +115,7 @@ Move Board::parseUciMove(const std::string& uci) {
     if (uci.size() >= 5) {
         char p = uci[4];
         char piece = board[m.fromR][m.fromC];
-        m.promotion = isupper(piece) ? (char)toupper(p) : (char)tolower(p);
+        m.promotion = isWhitePiece(piece) ? (char)toupper(p) : (char)pieceType(p);
     }
 
     char piece = board[m.fromR][m.fromC];
@@ -118,7 +131,7 @@ std::string Board::moveToUci(const Move& m) const {
     s += char('0' + 8 - m.fromR);
     s += char('a' + m.toC);
     s += char('0' + 8 - m.toR);
-    if (m.promotion != '.') s += (char)tolower(m.promotion);
+    if (m.promotion != '.') s += (char)pieceType(m.promotion);
     return s;
 }
 
@@ -281,8 +294,8 @@ void Board::movePiece(int fromR, int fromC, int toR, int toC) {
             return;
         }
         char toPiece = board[toR][toC];
-        if (toPiece != '.' && ((isupper(fromPiece) && isupper(toPiece)) ||
-                               (islower(fromPiece) && islower(toPiece)))) {
+        if (toPiece != '.' && ((isWhitePiece(fromPiece) && isWhitePiece(toPiece)) ||
+                               (isBlackPiece(fromPiece) && isBlackPiece(toPiece)))) {
             cout << "Cannot capture your own piece!" << endl;
             return;
         }
@@ -290,7 +303,7 @@ void Board::movePiece(int fromR, int fromC, int toR, int toC) {
 
     Move m = {fromR, fromC, toR, toC};
     if ((fromPiece == 'P' && toR == 0) || (fromPiece == 'p' && toR == 7))
-        m.promotion = isupper(fromPiece) ? 'Q' : 'q';
+        m.promotion = isWhitePiece(fromPiece) ? 'Q' : 'q';
     if ((fromPiece == 'P' || fromPiece == 'p') && fromC != toC && board[toR][toC] == '.')
         m.enPassant = true;
     makeMove(m);
@@ -305,12 +318,12 @@ bool Board::isValidMove(int fromR, int fromC, int toR, int toC) {
 
     char target = board[toR][toC];
     if (target != '.') {
-        if ((isupper(piece) && isupper(target)) ||
-            (islower(piece) && islower(target)))
+        if ((isWhitePiece(piece) && isWhitePiece(target)) ||
+            (isBlackPiece(piece) && isBlackPiece(target)))
             return false;
     }
 
-    switch (tolower(piece)) {
+    switch (pieceType(piece)) {
         case 'p': return isValidPawnMove(fromR, fromC, toR, toC);
         case 'n': return isValidKnightMove(fromR, fromC, toR, toC);
         case 'r': return isValidRookMove(fromR, fromC, toR, toC);
@@ -330,7 +343,7 @@ bool Board::isValidPawnMove(int fromR, int fromC, int toR, int toC) {
         if (dCol == 0 && dRow == -1 && board[toR][toC] == '.') return true;
         if (dCol == 0 && dRow == -2 && fromR == 6 &&
             board[toR][toC] == '.' && board[fromR-1][fromC] == '.') return true;
-        if (abs(dCol) == 1 && dRow == -1 && islower(board[toR][toC])) return true;
+        if (abs(dCol) == 1 && dRow == -1 && isBlackPiece(board[toR][toC])) return true;
         // En passant
         if (abs(dCol) == 1 && dRow == -1 && board[toR][toC] == '.' &&
             epFile == toC && fromR == 3) return true;
@@ -339,7 +352,7 @@ bool Board::isValidPawnMove(int fromR, int fromC, int toR, int toC) {
         if (dCol == 0 && dRow == 1 && board[toR][toC] == '.') return true;
         if (dCol == 0 && dRow == 2 && fromR == 1 &&
             board[toR][toC] == '.' && board[fromR+1][fromC] == '.') return true;
-        if (abs(dCol) == 1 && dRow == 1 && isupper(board[toR][toC])) return true;
+        if (abs(dCol) == 1 && dRow == 1 && isWhitePiece(board[toR][toC])) return true;
         // En passant
         if (abs(dCol) == 1 && dRow == 1 && board[toR][toC] == '.' &&
             epFile == toC && fromR == 4) return true;
@@ -392,45 +405,120 @@ bool Board::isValidKingMove(int fromR, int fromC, int toR, int toC) {
     return dRow <= 1 && dCol <= 1 && !(dRow == 0 && dCol == 0);
 }
 
-std::vector<Move> Board::generateAllMoves(bool whiteTurn) {
+std::vector<Move> Board::generateAllMoves(bool whiteTurn, bool capturesOnly) {
+    static const int knightDirs[8][2] = {{-2,-1},{-2,1},{-1,-2},{-1,2},{1,-2},{1,2},{2,-1},{2,1}};
+    static const int kingDirs[8][2]   = {{-1,-1},{-1,0},{-1,1},{0,-1},{0,1},{1,-1},{1,0},{1,1}};
+    static const int diagDirs[4][2]   = {{-1,-1},{-1,1},{1,-1},{1,1}};
+    static const int orthDirs[4][2]   = {{-1,0},{1,0},{0,-1},{0,1}};
+
     std::vector<Move> moves;
+    moves.reserve(capturesOnly ? 16 : 64);
+
+    auto isEnemy = [&](char t) {
+        return t != '.' && (whiteTurn ? isBlackPiece(t) : isWhitePiece(t));
+    };
+    // A move can only expose our own king if we're already in check, the king itself
+    // moves, it's en passant, or the moving piece shares a line with the king (a possible
+    // pin). Only those need the make/test/undo check; every other move is legal as-is.
+    const int side = whiteTurn ? 0 : 1;
+    const int kr = kingR[side], kc = kingC[side];
+    const bool inCheck = isInCheck(whiteTurn);
+    auto tryAdd = [&](Move m) {
+        int dr = m.fromR - kr, dc = m.fromC - kc;
+        bool mayExposeKing = inCheck || m.enPassant ||
+                             dr == 0 || dc == 0 || dr == dc || dr == -dc;
+        if (!mayExposeKing) {
+            m.captured = board[m.toR][m.toC];
+            moves.push_back(m);
+            return;
+        }
+        makeMove(m);
+        if (!isInCheck(whiteTurn)) moves.push_back(m);
+        undoMove(m);
+    };
+    // Single-square moves (knight, king): empty squares unless capturesOnly, or enemy pieces
+    auto addSteps = [&](int r, int c, const int (*dirs)[2], int n) {
+        for (int i = 0; i < n; i++) {
+            int tr = r + dirs[i][0], tc = c + dirs[i][1];
+            if (tr < 0 || tr >= 8 || tc < 0 || tc >= 8) continue;
+            char t = board[tr][tc];
+            if ((t == '.' && !capturesOnly) || isEnemy(t)) tryAdd(Move{r, c, tr, tc});
+        }
+    };
+    // Sliding moves (bishop, rook, queen): walk each ray until blocked
+    auto addSlides = [&](int r, int c, const int (*dirs)[2], int n) {
+        for (int i = 0; i < n; i++) {
+            int tr = r + dirs[i][0], tc = c + dirs[i][1];
+            while (tr >= 0 && tr < 8 && tc >= 0 && tc < 8) {
+                char t = board[tr][tc];
+                if (t == '.') {
+                    if (!capturesOnly) tryAdd(Move{r, c, tr, tc});
+                } else {
+                    if (isEnemy(t)) tryAdd(Move{r, c, tr, tc});
+                    break;
+                }
+                tr += dirs[i][0]; tc += dirs[i][1];
+            }
+        }
+    };
+
+    const int dir      = whiteTurn ? -1 : 1;
+    const int startRow = whiteTurn ? 6 : 1;
+    const int promoRow = whiteTurn ? 0 : 7;
+    const int epRow    = whiteTurn ? 3 : 4; // row a pawn must be on to capture en passant
+    const char* promos = whiteTurn ? "QRBN" : "qrbn";
+
+    auto addPawnMove = [&](int r, int c, int tr, int tc) {
+        if (tr == promoRow) {
+            for (int i = 0; i < 4; i++) {
+                Move m = {r, c, tr, tc};
+                m.promotion = promos[i];
+                tryAdd(m);
+            }
+        } else {
+            tryAdd(Move{r, c, tr, tc});
+        }
+    };
+
     for (int r = 0; r < 8; r++) {
         for (int c = 0; c < 8; c++) {
             char piece = board[r][c];
             if (piece == '.') continue;
-            if (whiteTurn  && islower(piece)) continue;
-            if (!whiteTurn && isupper(piece)) continue;
+            if (whiteTurn  && isBlackPiece(piece)) continue;
+            if (!whiteTurn && isWhitePiece(piece)) continue;
 
-            for (int tr = 0; tr < 8; tr++) {
-                for (int tc = 0; tc < 8; tc++) {
-                    if (!isValidMove(r, c, tr, tc)) continue;
-
-                    bool isPromotion = (piece == 'P' && tr == 0) ||
-                                       (piece == 'p' && tr == 7);
-                    if (isPromotion) {
-                        const char* promos = isupper(piece) ? "QRBN" : "qrbn";
-                        for (int i = 0; i < 4; i++) {
-                            Move m = {r, c, tr, tc};
-                            m.promotion = promos[i];
-                            makeMove(m);
-                            if (!isInCheck(whiteTurn))
-                                moves.push_back(m);
-                            undoMove(m);
-                        }
-                    } else {
-                        Move m = {r, c, tr, tc};
-                        // Detect en passant: pawn diagonal to empty square
-                        if ((piece == 'P' || piece == 'p') && tc != c && board[tr][tc] == '.')
-                            m.enPassant = true;
-                        makeMove(m);
-                        if (!isInCheck(whiteTurn))
-                            moves.push_back(m);
-                        undoMove(m);
+            switch (pieceType(piece)) {
+                case 'p': {
+                    int nr = r + dir;
+                    if (!capturesOnly && board[nr][c] == '.') {
+                        addPawnMove(r, c, nr, c);
+                        if (r == startRow && board[r + 2 * dir][c] == '.')
+                            tryAdd(Move{r, c, r + 2 * dir, c});
                     }
+                    for (int dc = -1; dc <= 1; dc += 2) {
+                        int tc = c + dc;
+                        if (tc < 0 || tc >= 8) continue;
+                        if (isEnemy(board[nr][tc])) {
+                            addPawnMove(r, c, nr, tc);
+                        } else if (!capturesOnly && board[nr][tc] == '.' &&
+                                   epFile == tc && r == epRow) {
+                            Move m = {r, c, nr, tc};
+                            m.enPassant = true;
+                            tryAdd(m);
+                        }
+                    }
+                    break;
                 }
+                case 'n': addSteps(r, c, knightDirs, 8); break;
+                case 'b': addSlides(r, c, diagDirs, 4); break;
+                case 'r': addSlides(r, c, orthDirs, 4); break;
+                case 'q': addSlides(r, c, diagDirs, 4); addSlides(r, c, orthDirs, 4); break;
+                case 'k': addSteps(r, c, kingDirs, 8); break;
             }
         }
     }
+
+    if (capturesOnly) return moves;
 
     // Castling: checked separately because king must not pass through check
     if (whiteTurn) {
@@ -544,12 +632,9 @@ bool Board::isSquareAttacked(int r, int c, bool byWhite) const {
 }
 
 bool Board::isInCheck(bool white) const {
-    char king = white ? 'K' : 'k';
-    for (int r = 0; r < 8; r++)
-        for (int c = 0; c < 8; c++)
-            if (board[r][c] == king)
-                return isSquareAttacked(r, c, !white);
-    return false;
+    int side = white ? 0 : 1;
+    if (kingR[side] < 0) return false;
+    return isSquareAttacked(kingR[side], kingC[side], !white);
 }
 
 void Board::makeMove(Move& move) {
@@ -605,6 +690,8 @@ void Board::makeMove(Move& move) {
 
     board[move.toR][move.toC]    = moving;
     board[move.fromR][move.fromC] = '.';
+    if (moving == 'K') { kingR[0] = move.toR; kingC[0] = move.toC; }
+    if (moving == 'k') { kingR[1] = move.toR; kingC[1] = move.toC; }
 
     // En passant: remove the captured pawn from the side square
     if (move.enPassant) {
@@ -660,7 +747,7 @@ void Board::undoMove(const Move& move) {
     char moving = board[move.toR][move.toC];
     // If this was a promotion, the piece to put back at fromR,fromC is the pawn
     char originalPiece = (move.promotion != '.')
-                       ? (isupper(move.promotion) ? 'P' : 'p')
+                       ? (isWhitePiece(move.promotion) ? 'P' : 'p')
                        : moving;
 
     // Undo rook movement for castling (before restoring king position)
@@ -695,6 +782,8 @@ void Board::undoMove(const Move& move) {
     hash ^= zobristSideToMove;
 
     board[move.fromR][move.fromC] = originalPiece;
+    if (originalPiece == 'K') { kingR[0] = move.fromR; kingC[0] = move.fromC; }
+    if (originalPiece == 'k') { kingR[1] = move.fromR; kingC[1] = move.fromC; }
     board[move.toR][move.toC]     = move.enPassant ? '.' : move.captured;
 
     // Restore the en-passant captured pawn to its original square
@@ -719,6 +808,17 @@ void Board::undoMove(const Move& move) {
             hash ^= zobristCastle[i];
 }
 
+// Sorts moves best-first, scoring each move once rather than on every comparison
+template <typename ScoreFn>
+static void sortMoves(vector<Move>& moves, ScoreFn score) {
+    vector<pair<int, Move>> scored;
+    scored.reserve(moves.size());
+    for (const Move& m : moves) scored.push_back({score(m), m});
+    stable_sort(scored.begin(), scored.end(),
+                [](const pair<int, Move>& a, const pair<int, Move>& b) { return a.first > b.first; });
+    for (size_t i = 0; i < moves.size(); i++) moves[i] = scored[i].second;
+}
+
 int Board::quiescence(int alpha, int beta, bool maximizingPlayer) {
     if (shouldStop()) return 0;
     int standPat = evaluate();
@@ -731,14 +831,11 @@ int Board::quiescence(int alpha, int beta, bool maximizingPlayer) {
         beta = min(beta, standPat);
     }
 
-    vector<Move> moves = generateAllMoves(maximizingPlayer);
-    sort(moves.begin(), moves.end(), [&](const Move& a, const Move& b) {
-        if (a.captured == '.' || b.captured == '.') return (a.captured != '.') > (b.captured != '.');
-        return MVV_VAL[pieceIndex(a.captured)] * 10 - MVV_VAL[pieceIndex(board[a.fromR][a.fromC])]
-             > MVV_VAL[pieceIndex(b.captured)] * 10 - MVV_VAL[pieceIndex(board[b.fromR][b.fromC])];
+    vector<Move> moves = generateAllMoves(maximizingPlayer, true);
+    sortMoves(moves, [&](const Move& m) {
+        return MVV_VAL[pieceIndex(m.captured)] * 10 - MVV_VAL[pieceIndex(board[m.fromR][m.fromC])];
     });
     for (Move& m : moves) {
-        if (m.captured == '.') continue;
         makeMove(m);
         int score = quiescence(alpha, beta, !maximizingPlayer);
         undoMove(m);
@@ -769,7 +866,7 @@ int Board::minimax(int depth, int ply, bool maximizingPlayer, int alpha, int bet
 
     // TT lookup — extract best move even when depth is insufficient
     TTEntry& entry = transpositionTable[hash % TT_SIZE];
-    Move ttMove; ttMove.fromR = -1;
+    Move ttMove{-1, -1, -1, -1};
     if (entry.key == hash) {
         if (entry.ttFrom != 255) {
             ttMove.fromR = entry.ttFrom >> 3;
@@ -829,9 +926,7 @@ int Board::minimax(int depth, int ply, bool maximizingPlayer, int alpha, int bet
             m.toR   == killers[ply][1].toR   && m.toC   == killers[ply][1].toC) return 800000;
         return history[m.fromR * 8 + m.fromC][m.toR * 8 + m.toC];
     };
-    sort(moves.begin(), moves.end(), [&](const Move& a, const Move& b) {
-        return moveScore(a) > moveScore(b);
-    });
+    sortMoves(moves, moveScore);
 
     int originalAlpha = alpha;
     int best;
@@ -1042,42 +1137,35 @@ static const int kingEndgamePST[8][8] = {
 
 static const int passedPawnBonus[8] = {0, 10, 20, 35, 60, 90, 120, 0};
 
-int Board::kingSafety(bool white) const {
-    char king = white ? 'K' : 'k';
+int Board::kingSafety(bool white, uint64_t enemyAttacks, const int pawnsPerFile[8]) const {
     char pawn = white ? 'P' : 'p';
-    int kingR = -1, kingC = -1;
-
-    for (int r = 0; r < 8 && kingR == -1; r++)
-        for (int c = 0; c < 8 && kingR == -1; c++)
-            if (board[r][c] == king) { kingR = r; kingC = c; }
-
-    if (kingR == -1) return 0;
+    int kr = kingR[white ? 0 : 1], kc = kingC[white ? 0 : 1];
+    if (kr == -1) return 0;
 
     int score = 0;
 
-    int shieldRow = white ? kingR - 1 : kingR + 1;
+    int shieldRow = white ? kr - 1 : kr + 1;
     if (shieldRow >= 0 && shieldRow < 8) {
         for (int dc = -1; dc <= 1; dc++) {
-            int fc = kingC + dc;
+            int fc = kc + dc;
             if (fc >= 0 && fc < 8 && board[shieldRow][fc] == pawn)
                 score += 10;
         }
     }
 
+    // Penalise open files next to the king
     for (int dc = -1; dc <= 1; dc++) {
-        int fc = kingC + dc;
+        int fc = kc + dc;
         if (fc < 0 || fc >= 8) continue;
-        bool hasPawn = false;
-        for (int r = 0; r < 8; r++)
-            if (board[r][fc] == pawn) { hasPawn = true; break; }
-        if (!hasPawn) score -= 20;
+        if (pawnsPerFile[fc] == 0) score -= 20;
     }
 
+    // Penalise enemy attacks on the king and its surrounding squares
     for (int dr = -1; dr <= 1; dr++) {
         for (int dc = -1; dc <= 1; dc++) {
-            int zr = kingR + dr, zc = kingC + dc;
+            int zr = kr + dr, zc = kc + dc;
             if (zr < 0 || zr >= 8 || zc < 0 || zc >= 8) continue;
-            if (isSquareAttacked(zr, zc, !white))
+            if ((enemyAttacks >> (zr * 8 + zc)) & 1)
                 score -= 8;
         }
     }
@@ -1085,36 +1173,49 @@ int Board::kingSafety(bool white) const {
     return score;
 }
 
-int Board::countMobility(int r, int c) const {
+// Returns the piece's mobility (squares it can move to) and marks every square it
+// attacks in `attacks`, including squares held by its own side. The attack map lets
+// kingSafety() avoid calling isSquareAttacked() for each square around the king.
+int Board::countMobility(int r, int c, uint64_t& attacks) const {
     char piece = board[r][c];
-    bool white = isupper(piece);
-    char lower = tolower(piece);
+    bool white = isWhitePiece(piece);
+    char lower = pieceType(piece);
     int count = 0;
 
     auto canLand = [&](int nr, int nc) {
         char t = board[nr][nc];
-        return t == '.' || (white ? islower(t) : isupper(t));
+        return t == '.' || (white ? isBlackPiece(t) : isWhitePiece(t));
     };
+    auto mark = [&](int nr, int nc) { attacks |= 1ULL << (nr * 8 + nc); };
 
     if (lower == 'p') {
         int dir = white ? -1 : 1;
         int nr = r + dir;
         if (nr >= 0 && nr < 8) {
             if (board[nr][c] == '.') count++;
-            if (c > 0 && board[nr][c-1] != '.' && canLand(nr, c-1)) count++;
-            if (c < 7 && board[nr][c+1] != '.' && canLand(nr, c+1)) count++;
+            if (c > 0) { mark(nr, c-1); if (board[nr][c-1] != '.' && canLand(nr, c-1)) count++; }
+            if (c < 7) { mark(nr, c+1); if (board[nr][c+1] != '.' && canLand(nr, c+1)) count++; }
         }
     } else if (lower == 'n') {
         static const int nd[8][2] = {{-2,-1},{-2,1},{-1,-2},{-1,2},{1,-2},{1,2},{2,-1},{2,1}};
         for (auto& d : nd) {
             int nr = r+d[0], nc = c+d[1];
-            if (nr>=0&&nr<8&&nc>=0&&nc<8&&canLand(nr,nc)) count++;
+            if (nr>=0&&nr<8&&nc>=0&&nc<8) { mark(nr, nc); if (canLand(nr,nc)) count++; }
         }
-    } else if (lower == 'b' || lower == 'q') {
+    } else if (lower == 'k') {
+        // King mobility intentionally excluded to avoid incentivising early king movement
+        static const int kd[8][2] = {{-1,-1},{-1,0},{-1,1},{0,-1},{0,1},{1,-1},{1,0},{1,1}};
+        for (auto& d : kd) {
+            int nr = r+d[0], nc = c+d[1];
+            if (nr>=0&&nr<8&&nc>=0&&nc<8) mark(nr, nc);
+        }
+    }
+    if (lower == 'b' || lower == 'q') {
         static const int dd[4][2] = {{-1,-1},{-1,1},{1,-1},{1,1}};
         for (auto& d : dd) {
             int nr = r+d[0], nc = c+d[1];
             while (nr>=0&&nr<8&&nc>=0&&nc<8) {
+                mark(nr, nc);
                 if (board[nr][nc] == '.') { count++; nr+=d[0]; nc+=d[1]; }
                 else { if (canLand(nr,nc)) count++; break; }
             }
@@ -1125,38 +1226,24 @@ int Board::countMobility(int r, int c) const {
         for (auto& d : od) {
             int nr = r+d[0], nc = c+d[1];
             while (nr>=0&&nr<8&&nc>=0&&nc<8) {
+                mark(nr, nc);
                 if (board[nr][nc] == '.') { count++; nr+=d[0]; nc+=d[1]; }
                 else { if (canLand(nr,nc)) count++; break; }
             }
         }
     }
-    // King mobility intentionally excluded to avoid incentivising early king movement
 
     return count;
 }
 
 int Board::evaluate() {
-    // Pre-pass: endgame detection and pawn row data for passed pawn detection
-    int totalMat = 0;
+    // Single pass: material, PST, mobility, attack maps, and pawn data
+    int totalMat = 0; // non-pawn material, for endgame detection
     int minBPawnRow[8], maxWPawnRow[8];
     fill(minBPawnRow, minBPawnRow + 8, 8);  // 8 = no black pawn
     fill(maxWPawnRow, maxWPawnRow + 8, -1); // -1 = no white pawn
-
-    for (int r = 0; r < 8; r++) {
-        for (int c = 0; c < 8; c++) {
-            char p = board[r][c];
-            switch (tolower(p)) {
-                case 'n': case 'b': totalMat += 300; break;
-                case 'r':           totalMat += 500; break;
-                case 'q':           totalMat += 900; break;
-                case 'p':
-                    if (p == 'p') { if (r < minBPawnRow[c]) minBPawnRow[c] = r; }
-                    else          { if (r > maxWPawnRow[c]) maxWPawnRow[c] = r; }
-                    break;
-            }
-        }
-    }
-    bool endgame = (totalMat <= 1300);
+    int wPawns[8] = {}, bPawns[8] = {};
+    uint64_t attacks[2] = {0, 0};           // squares attacked by [0]=white [1]=black
 
     int score = 0;
     for (int r = 0; r < 8; r++) {
@@ -1164,37 +1251,38 @@ int Board::evaluate() {
             char piece = board[r][c];
             if (piece == '.') continue;
 
-            bool white = isupper(piece);
+            bool white = isWhitePiece(piece);
             int pstRow = white ? (7 - r) : r;
 
             int material = 0, pst = 0;
-            switch (tolower(piece)) {
-                case 'p': material = 100; pst = pawnPST[pstRow][c];   break;
-                case 'n': material = 320; pst = knightPST[pstRow][c]; break;
-                case 'b': material = 330; pst = bishopPST[pstRow][c]; break;
-                case 'r': material = 500; pst = rookPST[pstRow][c];   break;
-                case 'q': material = 900; pst = queenPST[pstRow][c];  break;
-                case 'k': material = 0;
-                    pst = endgame ? kingEndgamePST[pstRow][c] : kingPST[pstRow][c];
+            switch (pieceType(piece)) {
+                case 'p':
+                    material = 100; pst = pawnPST[pstRow][c];
+                    if (white) { wPawns[c]++; if (r > maxWPawnRow[c]) maxWPawnRow[c] = r; }
+                    else       { bPawns[c]++; if (r < minBPawnRow[c]) minBPawnRow[c] = r; }
                     break;
+                case 'n': material = 320; pst = knightPST[pstRow][c]; totalMat += 300; break;
+                case 'b': material = 330; pst = bishopPST[pstRow][c]; totalMat += 300; break;
+                case 'r': material = 500; pst = rookPST[pstRow][c];   totalMat += 500; break;
+                case 'q': material = 900; pst = queenPST[pstRow][c];  totalMat += 900; break;
+                case 'k': break; // king PST depends on game phase, added below
             }
 
-            int mobility = (tolower(piece) == 'k') ? 0 : countMobility(r, c);
+            int mobility = countMobility(r, c, attacks[white ? 0 : 1]);
             if (white) score += material + pst + mobility * 3;
             else       score -= material + pst + mobility * 3;
         }
     }
+    bool endgame = (totalMat <= 1300);
 
-    score += kingSafety(true);
-    score -= kingSafety(false);
+    const int (*kingTable)[8] = endgame ? kingEndgamePST : kingPST;
+    if (kingR[0] >= 0) score += kingTable[7 - kingR[0]][kingC[0]];
+    if (kingR[1] >= 0) score -= kingTable[kingR[1]][kingC[1]];
+
+    score += kingSafety(true,  attacks[1], wPawns);
+    score -= kingSafety(false, attacks[0], bPawns);
 
     // Pawn structure penalties
-    int wPawns[8] = {}, bPawns[8] = {};
-    for (int r = 0; r < 8; r++)
-        for (int c = 0; c < 8; c++)
-            if      (board[r][c] == 'P') wPawns[c]++;
-            else if (board[r][c] == 'p') bPawns[c]++;
-
     for (int c = 0; c < 8; c++) {
         if (wPawns[c] > 1) score -= 20 * (wPawns[c] - 1);
         if (bPawns[c] > 1) score += 20 * (bPawns[c] - 1);
