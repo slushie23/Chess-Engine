@@ -4,6 +4,8 @@
 #include <string>
 #include <cstdint>
 #include <climits>
+#include <atomic>
+#include <chrono>
 #include "Move.h"
 
 class Board {
@@ -30,10 +32,18 @@ private:
         char    ttPromo = '.';
     };
     std::vector<TTEntry> transpositionTable;
-    Move killers[64][2];   // two killer slots per remaining-depth level
+    static const int MAX_PLY = 64; // hard cap on search depth / ply
+
+    Move killers[MAX_PLY][2]; // two killer slots per ply (distance from root)
     int  history[64][64];  // history[fromSq][toSq] — quiet-move cutoff frequency
     std::vector<uint64_t> hashHistory; // position hashes for repetition detection
     int halfMoveClock = 0;
+
+    // Search control
+    std::chrono::steady_clock::time_point searchStart;
+    long long searchLimitMs = 0; // 0 = no time limit
+    uint64_t  nodes = 0;
+    bool shouldStop();
 
     void initZobrist();
     uint64_t computeHash() const;
@@ -44,6 +54,7 @@ private:
 
 public:
     bool whiteTurn;
+    std::atomic<bool> stopRequested{false}; // set by UCI "stop" or when time runs out
 
     Board();
     void resetToStart();
@@ -69,7 +80,7 @@ public:
 
     void makeMove(Move& move);
     void undoMove(const Move& move);
-    int minimax(int depth, bool maximizingPlayer, int alpha, int beta, bool nullMoveAllowed = true);
+    int minimax(int depth, int ply, bool maximizingPlayer, int alpha, int beta, bool nullMoveAllowed = true);
     Move getBestMove(int depth, bool whiteTurn);
 
     std::vector<Move> generateAllMoves(bool whiteTurn);

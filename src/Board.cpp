@@ -126,18 +126,25 @@ Move Board::getBestMoveTime(int maxDepth, int timeLimitMs) {
     for (auto& row : history) for (auto& h : row) h /= 2;
 
     using namespace std::chrono;
-    auto start = steady_clock::now();
+    searchStart   = steady_clock::now();
+    searchLimitMs = timeLimitMs;
+    nodes = 0;
+    maxDepth = min(maxDepth, MAX_PLY);
 
     vector<Move> moves = generateAllMoves(whiteTurn);
     if (moves.empty()) return Move{-1, -1, -1, -1};
+    if (moves.size() == 1 && timeLimitMs > 0) return moves[0]; // forced move, save the clock
 
     Move bestMove = moves[0];
     int prevScore = 0;
 
     for (int d = 1; d <= maxDepth; d++) {
-        if (timeLimitMs > 0) {
-            auto ms = duration_cast<milliseconds>(steady_clock::now() - start).count();
-            if (ms >= timeLimitMs) break;
+        if (stopRequested) break;
+        // Each iteration costs several times the previous one, so don't start
+        // a new one once half the budget is gone — it almost certainly won't finish.
+        if (timeLimitMs > 0 && d > 1) {
+            auto ms = duration_cast<milliseconds>(steady_clock::now() - searchStart).count();
+            if (ms >= timeLimitMs / 2) break;
         }
 
         const int ASP = 50;
@@ -154,11 +161,13 @@ Move Board::getBestMoveTime(int maxDepth, int timeLimitMs) {
 
             for (Move& mv : moves) {
                 makeMove(mv);
-                int eval = minimax(d - 1, !whiteTurn, alpha, beta);
+                int eval = minimax(d - 1, 1, !whiteTurn, alpha, beta);
                 undoMove(mv);
+                if (stopRequested) break;
                 bool better = whiteTurn ? (eval > bestEval) : (eval < bestEval);
                 if (better) { bestEval = eval; iterBest = mv; }
             }
+            if (stopRequested) break;
 
             if (attempt == 0 && d >= 3 && (bestEval <= alpha || bestEval >= beta)) {
                 alpha = INT_MIN; beta = INT_MAX; // widen to full window and retry
@@ -166,6 +175,9 @@ Move Board::getBestMoveTime(int maxDepth, int timeLimitMs) {
                 break;
             }
         }
+
+        // An interrupted iteration's scores are unreliable — keep the last completed result
+        if (stopRequested) break;
 
         prevScore = bestEval;
         bestMove  = iterBest;
@@ -178,14 +190,30 @@ Move Board::getBestMoveTime(int maxDepth, int timeLimitMs) {
             }
         }
 
-        auto ms = duration_cast<milliseconds>(steady_clock::now() - start).count();
+        auto ms = duration_cast<milliseconds>(steady_clock::now() - searchStart).count();
         int engineScore = whiteTurn ? bestEval : -bestEval;
-        cout << "info depth " << d << " score cp " << engineScore
-             << " time " << ms << "\n";
-        cout.flush();
+        // Build the line first so it can't interleave with output from the UCI thread
+        ostringstream info;
+        info << "info depth " << d << " score cp " << engineScore
+             << " nodes " << nodes << " time " << ms
+             << " nps " << (ms > 0 ? nodes * 1000 / ms : nodes)
+             << " pv " << moveToUci(bestMove) << "\n";
+        cout << info.str() << flush;
     }
 
     return bestMove;
+}
+
+bool Board::shouldStop() {
+    if (stopRequested.load(std::memory_order_relaxed)) return true;
+    ++nodes;
+    // Reading the clock is relatively expensive, so only do it every 2048 nodes
+    if (searchLimitMs > 0 && (nodes & 2047) == 0) {
+        using namespace std::chrono;
+        auto ms = duration_cast<milliseconds>(steady_clock::now() - searchStart).count();
+        if (ms >= searchLimitMs) stopRequested = true;
+    }
+    return stopRequested.load(std::memory_order_relaxed);
 }
 
 int Board::pieceIndex(char piece) const {
