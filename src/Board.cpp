@@ -129,6 +129,7 @@ Move Board::getBestMoveTime(int maxDepth, int timeLimitMs) {
     searchStart   = steady_clock::now();
     searchLimitMs = timeLimitMs;
     nodes = 0;
+    stopRequested = false;
     maxDepth = min(maxDepth, MAX_PLY);
 
     vector<Move> moves = generateAllMoves(whiteTurn);
@@ -719,6 +720,7 @@ void Board::undoMove(const Move& move) {
 }
 
 int Board::quiescence(int alpha, int beta, bool maximizingPlayer) {
+    if (shouldStop()) return 0;
     int standPat = evaluate();
 
     if (maximizingPlayer) {
@@ -752,7 +754,10 @@ int Board::quiescence(int alpha, int beta, bool maximizingPlayer) {
     return maximizingPlayer ? alpha : beta;
 }
 
-int Board::minimax(int depth, bool maximizingPlayer, int alpha, int beta, bool nullMoveAllowed) {
+int Board::minimax(int depth, int ply, bool maximizingPlayer, int alpha, int beta, bool nullMoveAllowed) {
+    if (shouldStop()) return 0; // result is discarded by the caller once stopped
+    if (ply >= MAX_PLY) return evaluate();
+
     // Repetition detection: if current position appeared before, treat as draw
     if (halfMoveClock >= 100) return 0;
     {
@@ -798,7 +803,7 @@ int Board::minimax(int depth, bool maximizingPlayer, int alpha, int beta, bool n
         epFile = -1;
         hash ^= zobristSideToMove;
 
-        int nullScore = minimax(depth - 3, !maximizingPlayer, alpha, beta, false);
+        int nullScore = minimax(depth - 3, ply + 1, !maximizingPlayer, alpha, beta, false);
 
         hash ^= zobristSideToMove;
         epFile = savedEpFile;
@@ -818,10 +823,10 @@ int Board::minimax(int depth, bool maximizingPlayer, int alpha, int beta, bool n
         if (m.captured != '.')
             return 1000000 + MVV_VAL[pieceIndex(m.captured)] * 10
                            - MVV_VAL[pieceIndex(board[m.fromR][m.fromC])];
-        if (m.fromR == killers[depth][0].fromR && m.fromC == killers[depth][0].fromC &&
-            m.toR   == killers[depth][0].toR   && m.toC   == killers[depth][0].toC) return 900000;
-        if (m.fromR == killers[depth][1].fromR && m.fromC == killers[depth][1].fromC &&
-            m.toR   == killers[depth][1].toR   && m.toC   == killers[depth][1].toC) return 800000;
+        if (m.fromR == killers[ply][0].fromR && m.fromC == killers[ply][0].fromC &&
+            m.toR   == killers[ply][0].toR   && m.toC   == killers[ply][0].toC) return 900000;
+        if (m.fromR == killers[ply][1].fromR && m.fromC == killers[ply][1].fromC &&
+            m.toR   == killers[ply][1].toR   && m.toC   == killers[ply][1].toC) return 800000;
         return history[m.fromR * 8 + m.fromC][m.toR * 8 + m.toC];
     };
     sort(moves.begin(), moves.end(), [&](const Move& a, const Move& b) {
@@ -841,11 +846,11 @@ int Board::minimax(int depth, bool maximizingPlayer, int alpha, int beta, bool n
             makeMove(m);
             int val;
             if (doLMR) {
-                val = minimax(depth - 2, false, alpha, beta, true);
+                val = minimax(depth - 2, ply + 1, false, alpha, beta, true);
                 if (val > alpha)
-                    val = minimax(depth - 1, false, alpha, beta, true);
+                    val = minimax(depth - 1, ply + 1, false, alpha, beta, true);
             } else {
-                val = minimax(depth - 1, false, alpha, beta, true);
+                val = minimax(depth - 1, ply + 1, false, alpha, beta, true);
             }
             undoMove(m);
             moveCount++;
@@ -853,8 +858,8 @@ int Board::minimax(int depth, bool maximizingPlayer, int alpha, int beta, bool n
             if (best > alpha) alpha = best;
             if (alpha >= beta) {
                 if (isQuiet) {
-                    killers[depth][1] = killers[depth][0];
-                    killers[depth][0] = m;
+                    killers[ply][1] = killers[ply][0];
+                    killers[ply][0] = m;
                     history[m.fromR * 8 + m.fromC][m.toR * 8 + m.toC] += depth * depth;
                 }
                 break;
@@ -869,11 +874,11 @@ int Board::minimax(int depth, bool maximizingPlayer, int alpha, int beta, bool n
             makeMove(m);
             int val;
             if (doLMR) {
-                val = minimax(depth - 2, true, alpha, beta, true);
+                val = minimax(depth - 2, ply + 1, true, alpha, beta, true);
                 if (val < beta)
-                    val = minimax(depth - 1, true, alpha, beta, true);
+                    val = minimax(depth - 1, ply + 1, true, alpha, beta, true);
             } else {
-                val = minimax(depth - 1, true, alpha, beta, true);
+                val = minimax(depth - 1, ply + 1, true, alpha, beta, true);
             }
             undoMove(m);
             moveCount++;
@@ -881,14 +886,16 @@ int Board::minimax(int depth, bool maximizingPlayer, int alpha, int beta, bool n
             if (best < beta) beta = best;
             if (alpha >= beta) {
                 if (isQuiet) {
-                    killers[depth][1] = killers[depth][0];
-                    killers[depth][0] = m;
+                    killers[ply][1] = killers[ply][0];
+                    killers[ply][0] = m;
                     history[m.fromR * 8 + m.fromC][m.toR * 8 + m.toC] += depth * depth;
                 }
                 break;
             }
         }
     }
+
+    if (stopRequested) return best; // don't store scores from an aborted search
 
     TTEntry& slot = transpositionTable[hash % TT_SIZE];
     slot.key   = hash;
@@ -908,6 +915,8 @@ int Board::minimax(int depth, bool maximizingPlayer, int alpha, int beta, bool n
 
 Move Board::getBestMove(int depth, bool whiteTurn) {
     for (auto& row : history) for (auto& h : row) h /= 2;
+    searchLimitMs = 0;
+    stopRequested = false;
 
     vector<Move> moves = generateAllMoves(whiteTurn);
     if (moves.empty()) return Move{};
@@ -929,7 +938,7 @@ Move Board::getBestMove(int depth, bool whiteTurn) {
 
             for (Move& m : moves) {
                 makeMove(m);
-                int eval = minimax(d - 1, !whiteTurn, alpha, beta);
+                int eval = minimax(d - 1, 1, !whiteTurn, alpha, beta);
                 undoMove(m);
                 bool better = whiteTurn ? (eval > bestEval) : (eval < bestEval);
                 if (better) { bestEval = eval; iterBest = m; }
